@@ -1,7 +1,7 @@
 # icy99
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 
-Initial commit 2020-06-15. I will add documentation once I have a bit more time.
+Initial commit 2020-06-15. I will add documentation once I have a bit more time. The software stucture is a bit of a mess. I am moving the files into this github repository from my own repository, please let me know if some files are missing.
 
 The repository does not include ROM files. The necessary ROM files are:
 * 994AGROM.Bin system GROM file
@@ -16,5 +16,8 @@ The design targets the following FPGA boards:
 | Blackice-II | top_blackice2.v | next9900.bin |
 | Flea Ohm    | top_flea.v      | flea_ohm.bit |
 
+ Thus, for example to build the version for flea_ohm board:
+
+ make flea_ohm.bit
  
  

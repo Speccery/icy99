@@ -1,0 +1,215 @@
+###############################################################################
+#                                                                             #
+# Copyright 2017 myStorm Copyright and related                                #
+# rights are licensed under the Solderpad Hardware License, Version 0.51      #
+# (the “License”); you may not use this file except in compliance with        #
+# the License. You may obtain a copy of the License at                        #
+# http://solderpad.org/licenses/SHL-0.51. Unless required by applicable       #
+# law or agreed to in writing, software, hardware and materials               #
+# distributed under this License is distributed on an “AS IS” BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or             #
+# implied. See the License for the specific language governing                #
+# permissions and limitations under the License.                              #
+#                                                                             #
+###############################################################################
+
+# User Constraint File for myStorm BlackIce II   - Ken Boak   09-12-17
+
+#pmod 1 (Uart pmod)
+# set_io PMOD[0] 94 # rd6
+# set_io PMOD[1] 91 # rd4 shared with RTS and pin 128 see below
+# set_io PMOD[2] 88 # rd2
+# set_io PMOD[3] 85 # rd0
+
+set_io PMOD0    94 # rd6
+set_io PMOD1    91 # rd4 shared with RTS and pin 128 see below
+set_io UART_RX  88 # rd2
+set_io UART_TX  85 # rd0
+
+#pmod 2
+set_io PMOD4    95 # rd7
+set_io PMOD5    93 # rd5
+set_io PMOD6    90 # rd3
+set_io PMOD7    87 # rd1
+
+#pmod 3 GPIO
+set_io PMOD_IO[8] 105 # c5
+set_io PMOD_IO[9] 102 # c3
+set_io PMOD_IO[10] 99 # c1
+set_io PMOD_IO[11] 97 # i_tx
+
+#pmod 4
+set_io PMOD_IO[12] 104 # c4
+set_io PMOD_IO[13] 101 # c2
+set_io PMOD_IO[14] 98 # c0
+set_io PMOD_IO[15] 96 # i_rx
+
+#pmod 5 GPIO
+set_io PMOD5_1 143 #g2
+set_io PMOD5_2 114 #c11
+set_io PMOD5_3 112 #c9
+set_io PMOD5_4 107 #c7
+
+#set_io PMOD_IO[16] 143 #g2
+#set_io PMOD_IO[17] 114 #c11
+#set_io PMOD_IO[18] 112 #c9
+#set_io PMOD_IO[19] 107 #c7
+
+#pmod 6 GPIO
+set_io PMOD6_1 144 #G1
+set_io PMOD6_2 113 #C10
+set_io PMOD6_3 110 #C8
+set_io PMOD6_4 106 #C6
+#set_io PMOD_IO[20] 144 #G1
+#set_io PMOD_IO[21] 113 #C10
+#set_io PMOD_IO[22] 110 #C8
+#set_io PMOD_IO[23] 106 #C6
+
+#pmod 7 lvds pairs 2 & 5
+
+# VGA Output - Matches Digilent PmodVGA plugged into PMOD7/8/9/10
+set_io red[3]     15 # PMOD35 = PMOD 9/10 pin  5
+set_io red[2]     16 # PMOD34 = PMOD 9/10 pin  7
+set_io red[1]     19 # PMOD33 = PMOD 9/10 pin  9
+set_io red[0]     20 # PMOD32 = PMOD 9/10 pin 11
+
+set_io green[3]    1 # PMOD27 = PMOD  7/8 pin  5
+set_io green[2]    2 # PMOD26 = PMOD  7/8 pin  7
+set_io green[1]    9 # PMOD25 = PMOD  7/8 pin  9
+set_io green[0]   10 # PMOD24 = PMOD  7/8 pin 11
+
+set_io blue[3]    11 # PMOD39 = PMOD 9/10 pin  6
+set_io blue[2]    12 # PMOD38 = PMOD 9/10 pin  8
+set_io blue[1]    17 # PMOD37 = PMOD 9/10 pin 10
+set_io blue[0]    18 # PMOD36 = PMOD 9/10 pin 12
+
+set_io hsync       8 # PMOD28 = PMOD  7/8 pin 12
+set_io vsync       7 # PMOD29 = PMOD  7/8 pin 10
+
+# # EP Renumbered PMOD[24..31] to PMOD[0..7] since nextpnr seems to assume buses start from 0
+# set_io PMOD_IO[0] 10 # 5b
+# set_io PMOD_IO[1] 9 # 5a
+# set_io PMOD_IO[2] 2 # 2b
+# set_io PMOD_IO[3] 1 # 2a
+
+#pmod 8 lvds pairs 3 & 4
+# set_io PMOD_IO[4] 8 # 4b
+# set_io PMOD_IO[5] 7 # 4a
+
+# EP 2019-09-29 converting these to support VGA output, these pins 3 and 4 
+# are not used I guess. But they still occupy the same PMOD connector (I guess).
+#set_io PMOD_IO[6] 4 # 3b
+#set_io PMOD_IO[7] 3 # 3a
+
+##pmod 9 lvds pairs 10 & 13
+#set_io PMOD32 20 # 13b
+#set_io PMOD33 19 # 13a
+#set_io PMOD34 16 # 10b
+#set_io PMOD35 15 # 10a
+
+#pmod 10 lvds pairs 8 & 12
+#set_io PMOD36 18 # 12b
+#set_io PMOD[37] 17 # 12a
+#set_io PMOD[38] 12 # 8b
+#set_io PMOD[39] 11 # 8a
+
+#pmod 11 lvds pairs 14 & 25
+set_io PMOD[40] 34 # 25b
+set_io PMOD[41] 33 # 25a
+set_io PMOD[42] 22 # 14B
+set_io PMOD[43] 21 # 14a
+
+#pmod 12 lvds pairs 18 & 24
+## set_io PMOD[44] 32 # 24b
+## set_io PMOD[45] 31 # 24a
+## set_io PMOD[46] 26 # 18b
+## set_io PMOD[47] 25 # 18a
+set_io ps2_clk  26  # PMOD 11/12 pin 8
+set_io ps2_data 32  # PMOD 11/12 pin 12
+
+#pmod 13 DIG16-DIG19
+
+# set_io PMOD[48] 37  # DIG19
+# set_io PMOD[49] 38  # DIG18
+# set_io PMOD[50] 39  # DIG17
+# set_io PMOD[51] 41  # DIG16
+
+set_io DIG19 37  # DIG19
+set_io DIG18 38  # DIG18
+set_io DIG17 39  # DIG17
+set_io DIG16 41  # DIG16
+
+
+#pmod 14 SPI muxed with leds
+# EP Renumbered PMOD[52..55] to LED[0..3] 
+set_io LED[0] 71 #LD4,!SS,p14_1
+set_io LED[1] 67 #LD3,MISO,p14_2
+set_io LED[2] 68 #LD2,MOSI,p14_3
+set_io LED[3] 70 #LD1,SCL,p14_4
+# Buttons
+set_io B1 63 # Push Button 1
+set_io B2 64 # Push Button 2#
+
+
+# SRAM
+set_io ADR[0] 137
+set_io ADR[1] 138
+set_io ADR[2] 139
+set_io ADR[3] 141
+set_io ADR[4] 142
+set_io ADR[5] 42
+set_io ADR[6] 43
+set_io ADR[7] 44
+set_io ADR[8] 73
+set_io ADR[9] 74
+set_io ADR[10] 75
+set_io ADR[11] 76
+set_io ADR[12] 115
+set_io ADR[13] 116
+set_io ADR[14] 117
+set_io ADR[15] 118
+set_io ADR[16] 119
+set_io ADR[17] 78
+
+set_io DAT[0] 136
+set_io DAT[1] 135
+set_io DAT[2] 134
+set_io DAT[3] 130
+set_io DAT[4] 125
+set_io DAT[5] 124
+set_io DAT[6] 122
+set_io DAT[7] 121
+set_io DAT[8] 62
+set_io DAT[9] 61
+set_io DAT[10] 60
+set_io DAT[11] 56
+set_io DAT[12] 55
+set_io DAT[13] 48
+set_io DAT[14] 47
+set_io DAT[15] 45
+
+set_io RAMOE 29
+set_io RAMWE 120
+set_io RAMCS 23
+set_io RAMUB 28
+set_io RAMLB 24
+
+# QUAD SPI
+set_io QSPICSN 81
+set_io QSPICK 82
+set_io QSPIDQ[0] 83
+set_io QSPIDQ[1] 84
+set_io QSPIDQ[2] 79
+set_io QSPIDQ[3] 80
+
+# Debug
+set_io DONE 52 # DONE - GBIN4
+# EP Commented DBG1 due to nextpnr PLL placement problem
+## set_io DBG1 49 # DBG1 - GBIN5
+
+# Internal global reset
+set_io GRESET 128 # Connected to CH340 RTS and also P1 (uart Pmod above)
+
+# Onboard 100Mhz oscillator
+set_io clk100 129
+
