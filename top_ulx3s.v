@@ -98,7 +98,7 @@ module top_ulx3s
  
   // ROM
   wire [7:0] rom_out_lo, rom_out_hi;
-  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_125mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
+  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_25mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
   /*
   wire rom_we_lo = rom_sel && !RAMLB && !RAMWE;
   wire rom_we_hi = rom_sel && !RAMUB && !RAMWE;

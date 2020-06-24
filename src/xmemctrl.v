@@ -11,7 +11,7 @@ module xmemctrl(
   input wire clock,
   input wire reset,   // active high
   // SRAM signals
-  output wire [15:0] SRAM_DAT_out,
+  output reg  [15:0] SRAM_DAT_out,
   input  wire [15:0] SRAM_DAT_in,
   output wire SRAM_DAT_drive,
   output wire [17:0] SRAM_ADR,
@@ -73,7 +73,8 @@ parameter [3:0]
   cpu_rd2 = 9,
   vdp_rd0 = 10,
   vdp_wr0 = 11,
-  vdp_wr1 = 12;
+  vdp_wr1 = 12,
+  cpu_pre_wr2 = 13;
 
 reg [3:0] mem_state = idle;
 reg mem_drive_bus = 1'b0; // High when external memory controller is driving bus
@@ -97,22 +98,19 @@ reg vdp_first_pipelined_read;
   assign SRAM_ADR = addr;
   
   // Static RAM databus driving
-  assign SRAM_DAT_out = 
-      accessor == access_flash_ldr     && mem_drive_bus == 1'b1 ? flashDataOut :  // Flash memory loading
-      accessor == access_mem_serloader && mem_drive_bus == 1'b1 ? { mem_data_out,mem_data_out } :          // Memory controller
-      accessor == access_vdp           && mem_drive_bus == 1'b1 ? { vdp_data_in, vdp_data_in } : // VDP
-      data_from_cpu;
+  // assign SRAM_DAT_out = 
+  //     accessor == access_flash_ldr     && mem_drive_bus == 1'b1 ? flashDataOut :  // Flash memory loading
+  //     accessor == access_mem_serloader && mem_drive_bus == 1'b1 ? { mem_data_out,mem_data_out } :          // Memory controller
+  //     accessor == access_vdp           && mem_drive_bus == 1'b1 ? { vdp_data_in, vdp_data_in } : // VDP
+  //     data_from_cpu;
 
   assign SRAM_DAT_drive = (accessor == access_flash_ldr && mem_drive_bus == 1'b1)
                        || (accessor == access_mem_serloader && mem_drive_bus == 1'b1)
                        || (accessor == access_vdp && mem_drive_bus == 1'b1)
-                       || (accessor == access_cpu && mem_state == cpu_wr2);
+                       || (accessor == access_cpu && (mem_state == cpu_wr2 || mem_state == cpu_pre_wr2));
 
   assign read_bus_o = data_read_for_cpu; // read_bus;
   assign SRAM_CE = ram_cs_n;
-  //  (accessor == access_cpu || accessor == access_vdp) ? ram_cs_n : 
-  //                 accessor == access_mem_serloader ? ram_cs_n :
-  //                 MEM_n ; // Is this really ever used? I guess could be for flash loader.
   assign SRAM_WE = sram_we_n;
   assign SRAM_OE = sram_oe_n;
   
@@ -183,6 +181,7 @@ reg vdp_first_pipelined_read;
           addr <= { 5'b01000, vdp_addr[13:1]};  // VRAM at 128K
           vdp_last_addr0 <= vdp_addr[0];        // Writes are not pipelined, but this controls byte enables
           accessor <= access_vdp;
+          SRAM_DAT_out <= { vdp_data_in, vdp_data_in };
           ram_cs_n <= 1'b0;                 // initiate write cycle
           // delayed the issue of write strobe: sram_we_n <= 1'b0;
           mem_drive_bus <= 1'b1;            // only writes drive the bus   (for non-CPU writes)
@@ -197,6 +196,7 @@ reg vdp_first_pipelined_read;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;    // only writes drive the bus (for non-CPU writes)
           accessor <= access_flash_ldr;
+          SRAM_DAT_out <= flashDataOut;
           SRAM_BE <= 2'b00;
         end 
         else if(mem_write_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
@@ -205,6 +205,7 @@ reg vdp_first_pipelined_read;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;  // only writes drive the bus
           accessor <= access_mem_serloader;
+          SRAM_DAT_out <= { mem_data_out,mem_data_out };
           SRAM_BE <= { mem_addr[0], ~mem_addr[0] };
         end
         else if(mem_read_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
@@ -228,13 +229,8 @@ reg vdp_first_pipelined_read;
         else if((cpu_wr_rq == 1'b1 && MEM_n == 1'b0) || cpu_mem_write_pending == 1'b1) begin
           // init CPU write cycle
           addr <= xaddr_bus;
-          mem_state <= cpu_wr2;             // EPEP jump directly to state 2!!!
-          ram_cs_n <= 1'b0;                 // initiate write cycle
-          sram_we_n <= 1'b0;
-          mem_drive_bus <= 1'b1;            // only writes drive the bus   (for non-CPU writes)
-          cpu_mem_write_pending <= 1'b0;
-          accessor <= access_cpu;
-          SRAM_BE <= 2'b00;
+          mem_state <= cpu_pre_wr2;     
+          // signals moved from here to cpu_pre_wr2, the CPU data bus out not ready yet        
         end 
       end
       wr0 : begin
@@ -303,6 +299,17 @@ reg vdp_first_pipelined_read;
         // end
       end
       // CPU write cycle
+      cpu_pre_wr2 : begin
+          ram_cs_n <= 1'b0;                 // initiate write cycle
+          sram_we_n <= 1'b0;
+          mem_drive_bus <= 1'b1;            // only writes drive the bus   (for non-CPU writes)
+          cpu_mem_write_pending <= 1'b0;
+          accessor <= access_cpu;
+          SRAM_DAT_out <= data_from_cpu;
+          SRAM_BE <= 2'b00;
+
+          mem_state <= cpu_wr2;     
+      end
       cpu_wr2 : begin
         sram_we_n <= 1'b1;
         ram_cs_n <= 1'b1;

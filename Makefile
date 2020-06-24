@@ -52,7 +52,7 @@ ti994a_ulx3s.json: $(VERILOGS) top_ulx3s.v src/dvi.v Makefile
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
 	nextpnr-ecp5 --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
-	ecppack  ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
+	ecppack --compress ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
 
 
 clean:
