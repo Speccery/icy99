@@ -75,13 +75,6 @@ module top_ulx3s
   // Since we need byte addressability we need 10 blocks. 
   // For the select signals, note that ADR has 16-bit word address, not byte address.
   // Thus ADR[14] is CPU A15.
-/*  
-  wire rom_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:12] == 6'b000_000);    //  8K @ 00000
-  wire pad_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
-  wire gro_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:14] == 4'b001_0);      // 32K @ 10000
-  wire vra_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:13] == 5'b010_00);     // 16K @ 20000
-  wire car_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:13] == 5'b100_00);     // 16K @ 40000
-*/
   wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
   wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
   wire gro_sel = (ADR[17:15] == 3'b001);        // 64K @ 10000 (actually 56K)
@@ -99,28 +92,16 @@ module top_ulx3s
   // ROM
   wire [7:0] rom_out_lo, rom_out_hi;
   rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_25mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
-  /*
-  wire rom_we_lo = rom_sel && !RAMLB && !RAMWE;
-  wire rom_we_hi = rom_sel && !RAMUB && !RAMWE;
-  dualport_par #(8,12) rom_lb(pll_125mhz, rom_we_lo, ADR[11:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[11:0], rom_out_lo);
-  dualport_par #(8,12) rom_hb(pll_125mhz, rom_we_hi, ADR[11:0], sram_pins_dout[15:8], pll_125mhz, ADR[11:0], rom_out_hi);
-  */
   // SCRATCHPAD (here 1K not 256bytes)
   wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;
   wire pad_we_hi = pad_sel && !RAMUB && !RAMWE;
   wire [7:0] pad_out_lo, pad_out_hi;
-  dualport_par #(8, 9) pad_lb(pll_125mhz, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[ 8:0], pad_out_lo);
-  dualport_par #(8, 9) pad_hb(pll_125mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_125mhz, ADR[ 8:0], pad_out_hi);
+  dualport_par #(8, 9) pad_lb(pll_25mhz, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[ 8:0], pad_out_lo);
+  dualport_par #(8, 9) pad_hb(pll_25mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_25mhz, ADR[ 8:0], pad_out_hi);
 
   // GROM 24K
   wire [7:0] gro_out_lo, gro_out_hi;
-  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pll_125mhz, ADR[13:0], {gro_out_hi, gro_out_lo } );
-  /*
-  wire gro_we_lo = gro_sel && !RAMLB && !RAMWE;
-  wire gro_we_hi = gro_sel && !RAMUB && !RAMWE;
-  dualport_par #(8,14) gro_lb(pll_125mhz, gro_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[13:0], gro_out_lo);
-  dualport_par #(8,14) gro_hb(pll_125mhz, gro_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_125mhz, ADR[13:0], gro_out_hi);
-  */
+  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pll_25mhz, ADR[13:0], {gro_out_hi, gro_out_lo } );
   // GROM extension space for cartridges, so that we can load something in addition to system GROMs.
   // This space is 32K for the ULX3S, two 16K RAM blocks. Fills the range 6000..DFFF (here actually to FFFF).
   // A14-A13-A12
@@ -133,15 +114,15 @@ module top_ulx3s
   wire grom_ext_sel = gro_sel && (ADR[14:12] == 3'b011 || ADR[14:12] == 3'b100 || ADR[14:12] == 3'b101 || ADR[14:12] == 3'b110);  
   wire grom_ext_we_lo = grom_ext_sel && !RAMLB && !RAMWE;
   wire grom_ext_we_hi = grom_ext_sel && !RAMUB && !RAMWE;
-  dualport_par #(8, 14) grom_ext_lb(pll_125mhz, grom_ext_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[13:0], grom_ext_out[7:0]);
-  dualport_par #(8, 14) grom_ext_hb(pll_125mhz, grom_ext_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_125mhz, ADR[13:0], grom_ext_out[15:8]);
+  dualport_par #(8, 14) grom_ext_lb(pll_25mhz, grom_ext_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[13:0], grom_ext_out[7:0]);
+  dualport_par #(8, 14) grom_ext_hb(pll_25mhz, grom_ext_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_25mhz, ADR[13:0], grom_ext_out[15:8]);
 
   // RAM expansion, 32K.
   wire [15:0] ram_expansion_out;
   wire ram_exp_we_lo = ram_sel && !RAMLB && !RAMWE;
   wire ram_exp_we_hi = ram_sel && !RAMUB && !RAMWE;
-  dualport_par #(8, 14) ram_exp_lb(pll_125mhz, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pll_125mhz, ram_exp_addr, ram_expansion_out[7:0]);
-  dualport_par #(8, 14) ram_exp_hb(pll_125mhz, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pll_125mhz, ram_exp_addr, ram_expansion_out[15:8]);
+  dualport_par #(8, 14) ram_exp_lb(pll_25mhz, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pll_25mhz, ram_exp_addr, ram_expansion_out[7:0]);
+  dualport_par #(8, 14) ram_exp_hb(pll_25mhz, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pll_25mhz, ram_exp_addr, ram_expansion_out[15:8]);
 
   // VRAM 16K
   wire vra_we_lo = vra_sel && !RAMLB && !RAMWE;
@@ -153,8 +134,8 @@ module top_ulx3s
   wire car_we_lo = car_sel && !RAMLB && !RAMWE;
   wire car_we_hi = car_sel && !RAMUB && !RAMWE;
   wire [7:0] car_out_lo, car_out_hi;
-  dualport_par #(8,13) car_lb(pll_125mhz, car_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], car_out_lo);
-  dualport_par #(8,13) car_hb(pll_125mhz, car_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], car_out_hi);
+  dualport_par #(8,13) car_lb(pll_25mhz, car_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[12:0], car_out_lo);
+  dualport_par #(8,13) car_hb(pll_25mhz, car_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_25mhz, ADR[12:0], car_out_hi);
 
   // Data input multiplexer
   assign sram_pins_din = 

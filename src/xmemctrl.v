@@ -74,7 +74,8 @@ parameter [3:0]
   vdp_rd0 = 10,
   vdp_wr0 = 11,
   vdp_wr1 = 12,
-  cpu_pre_wr2 = 13;
+  cpu_pre_wr2 = 13,
+  cpu_rd1 = 14;
 
 reg [3:0] mem_state = idle;
 reg mem_drive_bus = 1'b0; // High when external memory controller is driving bus
@@ -218,7 +219,7 @@ reg vdp_first_pipelined_read;
         else if((cpu_rd_rq == 1'b1 && MEM_n == 1'b0) || cpu_mem_read_pending == 1'b1) begin
           // init CPU read cycle
           addr <= xaddr_bus;
-          mem_state <= cpu_rd2;
+          mem_state <= cpu_rd1;
           ram_cs_n <= 1'b0;                 // init read cycle
           sram_oe_n <= 1'b0;
           mem_drive_bus <= 1'b0;
@@ -279,6 +280,9 @@ reg vdp_first_pipelined_read;
         // since we can enter here from cache hits, make sure SRAM is deselected
         sram_oe_n <= 1'b1;
         // CPU read cycle
+      end
+      cpu_rd1 : begin
+        mem_state <= cpu_rd2; // Use two clock cycles for CPU reads
       end
       cpu_rd2 : begin
         data_read_for_cpu <= SRAM_DAT_in;

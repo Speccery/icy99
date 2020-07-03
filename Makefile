@@ -58,6 +58,7 @@ ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
 clean:
 	rm -f erik9900.blif erik9900.txt erik9900.bin next9900.bin next9900.asc next9900.json 
 	rm -f flea.json flea_ohm.bit 
+	rm -f ti994a_ulx3s.json ti994a_ulx3s.bit
 
 .PHONY: clean
 .PHONY: erik9900
