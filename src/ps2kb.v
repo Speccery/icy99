@@ -137,6 +137,7 @@ module ps2matrix(
   down    => fctn-x
 */
         // Convenience mappings
+/*        
         decode = code;
         special <= !action;
         if (!shifted) begin
@@ -148,14 +149,13 @@ module ps2matrix(
           end
         else begin
           case (code)
-            8'h4a: decode = 8'h43; // ? -> shift-I
+            // 8'h4a: decode = 8'h43; // ? -> shift-I
             8'h52: decode = 8'h4d; // " -> shift-P
             default: special <= 0;
           endcase
         end
-
+*/
         case (decode)
-
           8'h16: matrix[5][4] <= action; // 1
           8'h1e: matrix[1][4] <= action; // 2
           8'h26: matrix[2][4] <= action; // 3
@@ -166,9 +166,48 @@ module ps2matrix(
           8'h3e: matrix[2][3] <= action; // 8
           8'h46: matrix[1][3] <= action; // 9
           8'h45: matrix[5][3] <= action; // 0
-      //  8'h4e: // -
+          8'h4e: matrix[5][0] <= action; // / duplicate
           8'h55: matrix[0][0] <= action; // =
-      //  8'h66: // Backspace
+          // Backspace:
+          8'h66: begin
+            matrix[0][4] <= action;  // FCTN
+            matrix[1][5] <= action;  // S
+          end 
+          // Left arrow E0 6B
+          8'h6b: begin
+              if (extended) begin
+                matrix[0][4] <= action;  // FCTN
+                matrix[1][5] <= action;  // S
+              end
+          end
+          // Right arrow E0 74
+          8'h74: begin
+              if (extended) begin
+                matrix[0][4] <= action;  // FCTN
+                matrix[2][5] <= action;  // D
+              end
+          end
+          // Up arrow E0 75
+          8'h75: begin
+              if (extended) begin
+                matrix[0][4] <= action;  // FCTN
+                matrix[2][6] <= action;  // E
+              end
+          end
+          // Down arrow E0 72
+          8'h72: begin
+              if (extended) begin
+                matrix[0][4] <= action;  // FCTN
+                matrix[1][7] <= action;  // X
+              end
+          end
+          // Delete E0 71
+          8'h71: begin
+              if (extended) begin
+                matrix[0][4] <= action;  // FCTN
+                matrix[5][4] <= action;  // 1
+              end
+          end
 
       //  8'h0d: // TAB
           8'h15: matrix[5][6] <= action; // Q
