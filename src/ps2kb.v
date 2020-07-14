@@ -137,9 +137,9 @@ module ps2matrix(
   down    => fctn-x
 */
         // Convenience mappings
-/*        
         decode = code;
         special <= !action;
+/*        
         if (!shifted) begin
             case (code)
             8'h4e: decode = 8'h4a; // - -> shift-/
