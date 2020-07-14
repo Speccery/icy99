@@ -880,7 +880,8 @@ end
   // need the banking feature needed for VGA update.
   // bug below: line_buf_porta_out not set.
   wire not_used_8;
-  dualport1k9 LINEBUFFER(
+
+  dualport_par #(.WIDTH(9), .DEPTH(10)) LINEBUFFER(
     .clk_a(clk),
     .we_a(pixel_write),
     .addr_a(line_buf_addra),
@@ -890,7 +891,8 @@ end
     .addr_b(line_buf_addrb),
     .dout_b( {not_used_8, vga_line_buf_out })
   );
-  dualport512_9 RENDERBUFFER( // produces line_buf_porta_out
+
+  dualport_par #(.WIDTH(9), .DEPTH(9)) RENDERBUFFER( // produces line_buf_porta_out
     .clk_a(clk),
     .we_a(pixel_write),
     .addr_a(line_buf_addra[8:0]),
