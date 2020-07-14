@@ -47,7 +47,7 @@ flea_ohm.bit: Makefile flea.json
 
 # ECP5 ULX3S ECP5-85 board
 ti994a_ulx3s.json: $(VERILOGS) top_ulx3s.v src/dvi.v Makefile 
-	yosys -q -p "synth_ecp5 -json ti994a_ulx3s.json" src/dvi.v top_ulx3s.v rom16.v $(VERILOGS)
+	yosys -q -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" src/dvi.v top_ulx3s.v rom16.v $(VERILOGS)
 
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
@@ -58,7 +58,7 @@ ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
 clean:
 	rm -f erik9900.blif erik9900.txt erik9900.bin next9900.bin next9900.asc next9900.json 
 	rm -f flea.json flea_ohm.bit 
-	rm -f ti994a_ulx3s.json ti994a_ulx3s.bit
+	rm -f ti994a_ulx3s.bit ti994a_ulx3s.json
 
 .PHONY: clean
 .PHONY: erik9900
