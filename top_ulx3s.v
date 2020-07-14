@@ -5,23 +5,47 @@
 // implements the TI-99/4A.
 
 module top_ulx3s
+#(
+  // enable (set to 1) only one: c_dvi_v or c_vga2dvid_vhd
+  parameter c_dvi_v        = 1,
+  parameter c_vga2dvid_vhd = 0
+)
 (
   input  wire clk_25mhz,
-  output wire [3:0] gpdi_dp, gpdi_dn,
+  output wire [3:0] gpdi_dp,
 
   output wire usb_fpga_pu_dp, usb_fpga_pu_dn, 
   input  wire usb_fpga_dp, usb_fpga_dn,
 
-  output wire wifi_gpio0,
   output wire [7:0]led,
+  input  wire [6:0]btn,
 
   output wire flash_csn,  // ULX3S chip selects
   output wire adc_csn,
-  output wire sdram_csn,
-  output wire sdram_cke,
 
-  output wire ftdi_rxd,   // output from FPGA to FTDI
-  input  wire ftdi_txd,   // input from FTDI to FPGA
+  output sdram_csn,       // chip select
+  output sdram_clk,       // clock to SDRAM
+  output sdram_cke,       // clock enable to SDRAM
+  output sdram_rasn,      // SDRAM RAS
+  output sdram_casn,      // SDRAM CAS
+  output sdram_wen,       // SDRAM write-enable
+  output [12:0] sdram_a,  // SDRAM address bus
+  output  [1:0] sdram_ba, // SDRAM bank-address
+  output  [1:0] sdram_dqm,// byte select
+  inout  [15:0] sdram_d,  // data bus to/from SDRAM
+
+  inout  sd_clk, sd_cmd,
+  inout   [3:0] sd_d,
+
+  input         wifi_txd,
+  output        wifi_rxd,  // SPI from ESP32
+  input         wifi_gpio16,
+  input         wifi_gpio5,
+  output        wifi_gpio0,
+  output        wifi_en,
+
+  output wire   ftdi_rxd,   // output from FPGA to FTDI
+  input  wire   ftdi_txd,   // input from FTDI to FPGA
 
   // for secondary serial port we could use
   // GND, GP27 (output) and GP26 (input)
@@ -29,26 +53,153 @@ module top_ulx3s
   output wire gp_27
 );
 
-
   // Housekeeping logic for unwanted peripherals on ULX3S.
   assign flash_csn = 1'b1;  // Flash ROM disable.
-  assign adc_csn = 1'b1;
-  assign sdram_csn = 1'b1;
-  assign sdram_cke = 1'b0;
-  assign wifi_gpio0 = 1'b1;
+  assign adc_csn   = 1'b1;
+  assign wifi_en   = 1'b1;  // ESP32 enable
+  //assign wifi_gpio0 = 1'b1;
   // enable pull ups on both D+ and D- on the USB / PS2 connector
   assign usb_fpga_pu_dp = 1'b1;
   assign usb_fpga_pu_dn = 1'b1;
 
   // clock generation
-  wire pll_250mhz, pll_125mhz, pll_25mhz;
-
-  clk_25_250_125_25 clk_pll (
-    .clki(clk_25mhz),
-    .clko(pll_250mhz),
-    .clks1(pll_125mhz),
-    .clks2(pll_25mhz)
+  wire clk_locked;
+  wire [3:0] clocks;
+  ecp5pll
+  #(
+      .in_hz( 25*1000000),
+    .out0_hz(125*1000000),
+    .out1_hz( 25*1000000),
+    .out2_hz(125*1000000), .out2_deg(90)
+  )
+  ecp5pll_inst
+  (
+    .clk_i(clk_25mhz),
+    .clk_o(clocks),
+    .locked(clk_locked)
   );
+  wire pll_125mhz  = clocks[0]; // shift clock
+  wire pll_25mhz   = clocks[1]; // pixel clock
+  wire clk         = clocks[1]; // CPU and TI99/4A system
+  wire clk_sdram   = clocks[0]; // SDRAM core
+  assign sdram_clk = clocks[2]; // phase shifted for the chip
+  assign sdram_cke = 1'b1;
+
+  // ===============================================================
+  // Joystick for OSD control and games
+  // ===============================================================
+
+  localparam C_reset_delay_bits=24;
+  reg R_btn_resetn;
+  reg [C_reset_delay_bits-1:0] R_reset_delay;
+  reg [6:0] R_btn_joy;
+  always @(posedge clk)
+  begin
+    R_btn_joy <= btn;
+    // reliable start: after PLL lock, wait some delay and release reset
+    R_btn_resetn <= btn[0] & R_reset_delay[C_reset_delay_bits-1];
+    if(clk_locked)
+    begin
+      if(R_reset_delay[C_reset_delay_bits-1]==1'b0)
+        R_reset_delay <= R_reset_delay+1;
+    end
+    else
+      R_reset_delay <= 0;
+  end
+
+  // ===============================================================
+  // SPI Slave for RAM and CPU control
+  // ===============================================================
+  wire        spi_ram_wr, spi_ram_rd;
+  wire [31:0] spi_ram_addr;
+  wire  [7:0] spi_ram_di;
+  reg   [7:0] spi_ram_do;
+  reg   [7:0] spi_ram_hi;
+
+  assign sd_d[0] = 1'bz;
+  assign sd_d[3] = 1'bz; // FPGA pin pullup sets SD card inactive at SPI bus
+
+  wire irq;
+  spi_ram_btn
+  #(
+    .c_sclk_capable_pin(1'b0),
+    .c_addr_bits(32)
+  )
+  spi_ram_btn_inst
+  (
+    .clk(clk),
+    .csn(~wifi_gpio5),
+    .sclk(wifi_gpio16),
+    .mosi(sd_d[1]), // wifi_gpio4
+    .miso(sd_d[2]), // wifi_gpio12
+    .btn(R_btn_joy),
+    .irq(irq),
+    .wr(spi_ram_wr),
+    .rd(spi_ram_rd),
+    .addr(spi_ram_addr),
+    .data_in(spi_ram_do),
+    .data_out(spi_ram_di)
+  );
+  // Used for interrupt to ESP32
+  assign wifi_gpio0 = ~irq;
+
+  reg [7:0] R_cpu_control;
+  always @(posedge clk) begin
+    if (spi_ram_wr && spi_ram_addr[31:24] == 8'hFF) begin
+      R_cpu_control <= spi_ram_di;
+    end
+  end
+  
+  always @(posedge clk)
+  begin
+    if(spi_ram_wr && spi_ram_addr[0] == 1'b0)
+      spi_ram_hi <= spi_ram_di;
+  end
+  // for writing a 16-bit word at spi_ram_addr[0] == 1
+  wire [15:0] spi_ram_word = {spi_ram_hi, spi_ram_di};
+
+  reg  [31:0] bootloader_addr;
+  reg         bootloader_read_rq = 0;
+  wire        bootloader_read_ack;
+  wire  [7:0] bootloader_din;
+  reg         bootloader_write_rq = 0;
+  wire        bootloader_write_ack;
+  reg   [7:0] bootloader_dout;
+
+  always @(posedge clk)
+    if((spi_ram_rd || spi_ram_wr) && spi_ram_addr[31:24] == 8'h00)
+      bootloader_addr <= spi_ram_addr;
+
+  // FIXME: it only works if reading 2 bytes peek(addr,2), and the second byte is OK
+  always @(posedge clk)
+  begin
+    if(bootloader_read_ack)
+    begin
+      bootloader_read_rq <= 0;
+      spi_ram_do <= bootloader_din;
+    end
+    else
+    begin
+      if(spi_ram_rd && spi_ram_addr[31:24] == 8'h00)
+      begin
+        bootloader_read_rq <= 1;
+      end
+    end
+  end
+
+  always @(posedge clk)
+  begin
+    if(bootloader_write_ack)
+      bootloader_write_rq <= 0;
+    else
+    begin
+      if(spi_ram_wr && spi_ram_addr[31:24] == 8'h00)
+      begin
+        bootloader_write_rq <= 1;
+        bootloader_dout <= spi_ram_di;
+      end
+    end
+  end
 
   //------------------------------------------------------------
   // our SRAM
@@ -68,7 +219,7 @@ module top_ulx3s
   // -- 24K at 0A000 high memory expansion
   // 32K at 10000 GROM space (system+8K for module)
   // 16K at 20000 VRAM
-  // 16K at 40000 cartridge RAM
+  // 64K at 40000 cartridge RAM
   // without 32K RAM expansion this amounts to 73K.
   // 5 blocks in total.
 
@@ -76,12 +227,13 @@ module top_ulx3s
   // For the select signals, note that ADR has 16-bit word address, not byte address.
   // Thus ADR[14] is CPU A15.
   wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
+  wire dsr_sel = (ADR[17:12] == 6'b000_010);    //  8K @ 04000
   wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
   wire gro_sel = (ADR[17:15] == 3'b001);        // 64K @ 10000 (actually 56K)
   `ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[17:13] == 5'b010_00);     // 16K @ 20000
   `endif  
-  wire car_sel = (ADR[17:13] == 5'b100_00);     // 16K @ 40000
+  wire car_sel = (ADR[17:15] == 5'b100);     	// 64K @ 40000
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[17:12] == 6'b000_001) || (ADR[17:12] == 6'b000_101)  || (ADR[17:12] == 6'b000_11?); 
 
@@ -139,9 +291,41 @@ module top_ulx3s
   wire car_we_lo = car_sel && !RAMLB && !RAMWE;
   wire car_we_hi = car_sel && !RAMUB && !RAMWE;
   wire [7:0] car_out_lo, car_out_hi;
-  dualport_par #(8,13) car_lb(pll_25mhz, car_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[12:0], car_out_lo);
-  dualport_par #(8,13) car_hb(pll_25mhz, car_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_25mhz, ADR[12:0], car_out_hi);
+  dualport_par #(8,15) car_lb(pll_25mhz, car_we_lo, ADR[14:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[14:0], car_out_lo);
+  dualport_par #(8,15) car_hb(pll_25mhz, car_we_hi, ADR[14:0], sram_pins_dout[15:8], pll_25mhz, ADR[14:0], car_out_hi);
 
+  // DSR (total 8K for Device Service Routines like HEXBUS)
+  wire [15:0] dsr_out;
+  // SYS writes, SYS reads
+  wire dsr_we_lo = dsr_sel && !RAMLB && !RAMWE;
+  wire dsr_we_hi = dsr_sel && !RAMUB && !RAMWE;
+  dualport_par #(8,12) dsr_lb(pll_25mhz, dsr_we_lo, ADR[11:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[11:0], dsr_out[ 7:0]);
+  dualport_par #(8,12) dsr_hb(pll_25mhz, dsr_we_hi, ADR[11:0], sram_pins_dout[15:8], pll_25mhz, ADR[11:0], dsr_out[15:8]);
+/*
+  sdram sdram_i
+  (
+    .SDRAM_DQ(sdram_d),
+    .SDRAM_A(sdram_a),
+    .SDRAM_DQML(sdram_dqm[0]),
+    .SDRAM_DQMH(sdram_dqm[1]),
+    .SDRAM_BA(sdram_ba),
+    .SDRAM_nCS(sdram_csn),
+    .SDRAM_nWE(sdram_wen),
+    .SDRAM_nRAS(sdram_rasn),
+    .SDRAM_nCAS(sdram_casn),
+
+    .init(~R_btn_resetn),
+    .clk(clk_sdram),
+    .addr({ADR[14:0],1'b0}),
+    .rd(grom_ext_sel && !RAMOE),
+    .wr(grom_ext_sel && !RAMWE),
+    .wbs({grom_ext_we_lo, grom_ext_we_hi}),
+    .din(sram_pins_dout),
+    //.dout(grom_ext_out), // spiram.poke/peek values are OK, but for CPU it doesn't work
+    .busy(),
+    .word(1'b1)
+  );
+*/
   // Data input multiplexer
   assign sram_pins_din = 
     rom_sel ? { rom_out_hi, rom_out_lo } :
@@ -168,8 +352,14 @@ module top_ulx3s
   // Serial port assignments begin
   wire serloader_tx;
   wire tms9902_tx;
+  
   wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
   assign ftdi_rxd = serloader_tx; // send to FTDI chip  
+  // wire serloader_rx = 1'b1;
+  // assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
+  // assign ftdi_rxd = wifi_txd;
+  assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
+  
   wire tms9902_rx = gp[26];   // receive from FTDI chip
   assign gp_27 = tms9902_tx;
   // wire serloader_rx = gp[26];     // serloader UART receive GPIO_3;
@@ -190,20 +380,37 @@ module top_ulx3s
   assign led[7:4] = sys_LED[3:0]; // LEDs from sys module.
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  sys ti994a(clk, sys_LED, 
-    tms9902_tx, tms9902_rx,
-    RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
-    ADR, 
-    sram_pins_din, sram_pins_dout,
-    sram_pins_drive,
-    red, green, blue, hsync, vsync,
-    1'b1,  // cpu_reset_switch_n
+  sys 
+  ti994a(
+  	.clk(clk), 
+  	.LED(sys_LED), 
+    .tms9902_tx(tms9902_tx),
+    .tms9902_rx(tms9902_rx),
+    .RAMOE(RAMOE),
+    .RAMWE(RAMWE),
+    .RAMCS(RAMCS),
+    .RAMLB(RAMLB),
+    .RAMUB(RAMUB),
+    .ADR(ADR),
+    .sram_pins_din(sram_pins_din),
+    .sram_pins_dout(sram_pins_dout),
+    .sram_pins_drive(sram_pins_drive),
+    .red(red), .green(green), .blue(blue),
+    .hsync(hsync), .vsync(vsync), .vde(vde), // video display enable signal
+    .cpu_reset_switch_n(R_btn_resetn),  // cpu_reset_switch_n
     // LCD signals
-    pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden,
+    .pin_cs(pin_cs),
+    .pin_sdin(pin_sdin),
+    .pin_sclk(pin_sclk),
+    .pin_d_cn(pin_d_cn),
+    .pin_resn(pin_resn),
+    .pin_vccen(pin_vccen),
+    .pin_pmoden(pin_pmoden),
     // bootloader UART
-    serloader_tx, serloader_rx,
-    vde, // video display enable signal
-    ps2clk, ps2dat
+    .serloader_tx(serloader_tx), 
+    .serloader_rx(serloader_rx),
+    // PS/2 keyboard
+    .ps2clk(ps2clk), .ps2dat(ps2dat)
   );
 
   wire [7:0] red_out   = { red,   4'h0 };
@@ -212,59 +419,84 @@ module top_ulx3s
 
   wire hsyn = ~hsync;
   wire vsyn = ~vsync;
-  DVI_out out(pll_25mhz, pll_125mhz, red_out, green_out, blue_out, 
-    vde, hsyn, vsyn, gpdi_dp, gpdi_dn);
 
-endmodule
+  // ===============================================================
+  // SPI Slave for OSD display
+  // ===============================================================
 
-module clk_25_250_125_25(
-  input clki, 
-  output clks1,
-  output clks2,
-  output locked,
-  output clko
-);
-  wire clkfb;
-  wire clkos;
-  wire clkop;
-  (* ICP_CURRENT="12" *) (* LPF_RESISTOR="8" *) (* MFG_ENABLE_FILTEROPAMP="1" *) (* MFG_GMCREF_SEL="2" *)
-  EHXPLLL #(
-      .PLLRST_ENA("DISABLED"),
-      .INTFB_WAKE("DISABLED"),
-      .STDBY_ENABLE("DISABLED"),
-      .DPHASE_SOURCE("DISABLED"),
-      .CLKOP_FPHASE(0),
-      .CLKOP_CPHASE(0),
-      .OUTDIVIDER_MUXA("DIVA"),
-      .CLKOP_ENABLE("ENABLED"),
-      .CLKOP_DIV(2),
-      .CLKOS_ENABLE("ENABLED"),
-      .CLKOS_DIV(4),
-      .CLKOS_CPHASE(0),
-      .CLKOS_FPHASE(0),
-      .CLKOS2_ENABLE("ENABLED"),
-      .CLKOS2_DIV(20),
-      .CLKOS2_CPHASE(0),
-      .CLKOS2_FPHASE(0),
-      .CLKFB_DIV(10),
-      .CLKI_DIV(1),
-      .FEEDBK_PATH("INT_OP")
-    ) pll_i (
-      .CLKI(clki),
-      .CLKFB(clkfb),
-      .CLKINTFB(clkfb),
-      .CLKOP(clkop),
-      .CLKOS(clks1),
-      .CLKOS2(clks2),
-      .RST(1'b0),
-      .STDBY(1'b0),
-      .PHASESEL0(1'b0),
-      .PHASESEL1(1'b0),
-      .PHASEDIR(1'b0),
-      .PHASESTEP(1'b0),
-      .PLLWAKESYNC(1'b0),
-      .ENCLKOP(1'b0),
-      .LOCK(locked)
-    );
-  assign clko = clkop;
+  wire [7:0] osd_vga_r, osd_vga_g, osd_vga_b;
+  wire osd_vga_hsync, osd_vga_vsync, osd_vga_blank;
+  spi_osd
+  #(
+    .c_start_x(62), .c_start_y(80),
+    .c_chars_x(64), .c_chars_y(20),
+    .c_init_on(0),
+    .c_transparency(1),
+    .c_char_file("osd.mem"),
+    .c_font_file("font_bizcat8x16.mem")
+  )
+  spi_osd_inst
+  (
+    .clk_pixel(pll_25mhz), .clk_pixel_ena(1),
+    .i_r(  red_out),
+    .i_g(green_out),
+    .i_b( blue_out),
+    .i_hsync(hsyn), .i_vsync(vsyn), .i_blank(~vde),
+    .i_csn(~wifi_gpio5), .i_sclk(wifi_gpio16), .i_mosi(sd_d[1]), // .o_miso(),
+    .o_r(osd_vga_r), .o_g(osd_vga_g), .o_b(osd_vga_b),
+    .o_hsync(osd_vga_hsync), .o_vsync(osd_vga_vsync), .o_blank(osd_vga_blank)
+  );
+
+  wire [1:0] tmds[3:0];
+  generate
+  if(c_dvi_v)
+  DVI_out
+  #(
+    .generic_ddr(0),
+    .ecp5_ddr(1)
+  )
+  DVI_out_i
+  (
+    .pixclk(pll_25mhz),
+    .pixclk_x5(pll_125mhz),
+    .red(osd_vga_r),
+    .green(osd_vga_g),
+    .blue(osd_vga_b), 
+    .vde(~osd_vga_blank),
+    .hSync(osd_vga_hsync),
+    .vSync(osd_vga_vsync),
+    .tmds_c(tmds[3]),
+    .tmds_r(tmds[2]),
+    .tmds_g(tmds[1]),
+    .tmds_b(tmds[0])
+  );
+  if(c_vga2dvid_vhd)
+  // VGA to digital video converter
+  vga2dvid
+  #(
+    .C_ddr(1'b1),
+    .C_shift_clock_synchronizer(1'b0)
+  )
+  vga2dvid_instance
+  (
+    .clk_pixel(pll_25mhz),
+    .clk_shift(pll_125mhz),
+    .in_red(osd_vga_r),
+    .in_green(osd_vga_g),
+    .in_blue(osd_vga_b),
+    .in_hsync(osd_vga_hsync),
+    .in_vsync(osd_vga_vsync),
+    .in_blank(osd_vga_blank),
+    .out_clock(tmds[3]),
+    .out_red(tmds[2]),
+    .out_green(tmds[1]),
+    .out_blue(tmds[0])
+  );
+  endgenerate
+
+  ODDRX1F ddr0_clock (.D0(tmds[3][0]), .D1(tmds[3][1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_red   (.D0(tmds[2][0]), .D1(tmds[2][1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_green (.D0(tmds[1][0]), .D1(tmds[1][1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_blue  (.D0(tmds[0][0]), .D1(tmds[0][1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
+
 endmodule

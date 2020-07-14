@@ -46,8 +46,21 @@ flea_ohm.bit: Makefile flea.json
 	ecppack  flea_out.cfg flea_ohm.bit
 
 # ECP5 ULX3S ECP5-85 board
-ti994a_ulx3s.json: $(VERILOGS) top_ulx3s.v src/dvi.v Makefile 
-	yosys -q -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" src/dvi.v top_ulx3s.v rom16.v $(VERILOGS)
+VERILOGS_ULX3S = \
+ top_ulx3s.v \
+  src/ecp5pll.sv \
+ src/dvi.v \
+ src/sdram.sv \
+ src/vga2dvid.v \
+ src/tmds_encoder.v \
+ osd/osd.v \
+ osd/spi_osd.v \
+ osd/spi_ram_btn.v \
+ osd/spirw_slave_v.v 
+ # src/sys_bl32.v 
+
+ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) Makefile 
+	yosys -q -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
 
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json

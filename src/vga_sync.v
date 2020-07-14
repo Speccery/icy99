@@ -24,7 +24,7 @@ module VGA_SYNC(
   begin
     if(h_count == 10'd799) begin
       h_count <= 10'd0;
-      v_count <= (v_count == 10'd524) ? 10'd0 : v_count + 10'd1;
+      v_count <= (v_count == 10'd519) ? 10'd0 : v_count + 10'd1;
     end else begin
       h_count <= h_count + 10'd1;
     end
