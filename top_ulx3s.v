@@ -78,7 +78,9 @@ module top_ulx3s
   wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
   wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
   wire gro_sel = (ADR[17:15] == 3'b001);        // 64K @ 10000 (actually 56K)
+  `ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[17:13] == 5'b010_00);     // 16K @ 20000
+  `endif  
   wire car_sel = (ADR[17:13] == 5'b100_00);     // 16K @ 40000
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[17:12] == 6'b000_001) || (ADR[17:12] == 6'b000_101)  || (ADR[17:12] == 6'b000_11?); 
@@ -124,12 +126,15 @@ module top_ulx3s
   dualport_par #(8, 14) ram_exp_lb(pll_25mhz, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pll_25mhz, ram_exp_addr, ram_expansion_out[7:0]);
   dualport_par #(8, 14) ram_exp_hb(pll_25mhz, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pll_25mhz, ram_exp_addr, ram_expansion_out[15:8]);
 
+`ifdef EXTERNAL_VRAM
   // VRAM 16K
   wire vra_we_lo = vra_sel && !RAMLB && !RAMWE;
   wire vra_we_hi = vra_sel && !RAMUB && !RAMWE;
   wire [7:0] vra_out_lo, vra_out_hi;
   dualport_par #(8,13) vra_lb(pll_125mhz, vra_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], vra_out_lo);
   dualport_par #(8,13) vra_hb(pll_125mhz, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], vra_out_hi);
+`endif  
+
   // CARTRIDGE (paged, here 2 pages total 16K)
   wire car_we_lo = car_sel && !RAMLB && !RAMWE;
   wire car_we_hi = car_sel && !RAMUB && !RAMWE;
@@ -141,7 +146,9 @@ module top_ulx3s
   assign sram_pins_din = 
     rom_sel ? { rom_out_hi, rom_out_lo } :
     pad_sel ? { pad_out_hi, pad_out_lo } :
+`ifdef EXTERNAL_VRAM    
     vra_sel ? { vra_out_hi, vra_out_lo } :
+`endif    
     car_sel ? { car_out_hi, car_out_lo } :
     (gro_sel && !grom_ext_sel) ? { gro_out_hi, gro_out_lo } : // system GROM
     grom_ext_sel ? grom_ext_out :               // Cartridge GROM 32K

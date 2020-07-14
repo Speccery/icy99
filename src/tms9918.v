@@ -39,14 +39,16 @@ module tms9918(
 	output reg [2:0] vga_green,
 	output reg [1:0] vga_blue,
   output wire vde,
-  // Interface for external RAM
+  // Interface for external RAM. If EXTERNAL VRAM is defined, this interface is used,.
+  // otherwise embedded block RAM is used for VRAM. On the ICE40HX chips (BlackIce-II) there
+  // is not enough block RAM and external RAM must be used for video memory too.
   output wire [13:0] xram_addr,
   output wire [7:0]  xram_data_out,
   input  wire [7:0]  xram_data_in,
-  output reg  xram_read_rq,   // high for one clock
+  output wire xram_read_rq,   // high for one clock
   input  wire xram_read_ack,  // high when xram_data_in is valid
-  output reg  xram_pipeline_reads,  // when set high, xram is held with VDP 
-  output reg  xram_write_rq,  // high for one clock
+  output wire xram_pipeline_reads,  // when set high, xram is held with VDP 
+  output wire xram_write_rq,  // high for one clock
   input  wire xram_write_ack
 );
 
@@ -83,12 +85,19 @@ reg clk12_5MHz;  // 12.5 MHz 50/50 clock
 // linebuffer based VGA implementation
 wire [7:0] vga_line_buf_out;  // linebuf to VGA data out
 reg [7:0] vga_line_buf_in;  // write bus to linebuffer
-// wire [7:0] vram_out_data;  // vram hardware read bus
 reg [13:0] vram_out_addr;  // vram hardware addr bus
 wire [9:0] line_buf_addra;
 wire [9:0] line_buf_addrb;
 wire [7:0] line_buf_porta_out;  // line buffer render side read port. needed for sprite collisions.
 wire [0:0] line_buf_bit8_out;
+
+wire [7:0] mem_data_in;         // Data from VRAM, either internal block RAM or external RAM
+reg ram_write_rq;
+reg ram_read_rq;
+reg ram_pipeline_reads;         // Used to signal external memory control that we want to pipeline reads.
+wire ram_read_ack;
+wire ram_write_ack;
+
 reg line_buf_bit8_in;
 reg sig_coinc_pending;
 reg sig_5th_pending;
@@ -334,7 +343,7 @@ end
       cpu_mem_write_pending <= 1'b0;
       cpu_mem_read_pending <= 1'b0;
       cpu_read_already_done <= 1'b0;
-      xram_pipeline_reads <= 1'b0;
+      ram_pipeline_reads <= 1'b0;
       reg0 <= 8'h00;
       reg1 <= 8'h00;
       detect_frame_end <= 1'b0;
@@ -351,7 +360,7 @@ end
       // end
       clk25MHz <= 1'b1; // With Lattice ICE40HX version clock is 25MHz and this behaves as enable
 
-      xram_pipeline_reads <= 1'b0;
+      ram_pipeline_reads <= 1'b0;
       cpu_read_cycle_ack <= 1'b0;
       cpu_write_cycle_ack <= 1'b0;
 
@@ -451,15 +460,15 @@ end
       //----------------------------------------------------------
       if(1) begin // EPEP run on every cycle; if(clkdiv[0] == 1'b0) begin
         // By default read and write requests off
-        xram_read_rq <= 1'b0;
-        xram_write_rq <= 1'b0;
+        ram_read_rq <= 1'b0;
+        ram_write_rq <= 1'b0;
 
         if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00})
           detect_frame_end <= 1'b1;
         if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760)
           detect_line_end <= 1'b1;
 
-        if (xram_read_ack)
+        if (ram_read_ack)
           dbg_bytes_read_count <= dbg_bytes_read_count + 1;
 
         case(refresh_state)
@@ -487,13 +496,13 @@ end
              vram_out_addr <= vram_addr;
              refresh_return_state <= refresh_state;
              refresh_state <= cpu_vram_read0;
-             xram_read_rq <= 1'b1;
+             ram_read_rq <= 1'b1;
           end else if (cpu_mem_write || cpu_mem_write_pending) begin
              // CPU makes a write cycle to VRAM
              vram_out_addr <= vram_addr;
              refresh_return_state <= refresh_state;
              refresh_state <= cpu_vram_write0;
-             xram_write_rq <= 1'b1;
+             ram_write_rq <= 1'b1;
           end
         end
         process_line : begin
@@ -502,13 +511,13 @@ end
           setup_read_char : begin
             vram_out_addr <= char_addr;
             process_pixel <= read_char1;
-            xram_read_rq <= 1'b1;
-            xram_pipeline_reads <= 1'b1;  // Continue to own the bus
+            ram_read_rq <= 1'b1;
+            ram_pipeline_reads <= 1'b1;  // Continue to own the bus
           end
           read_char1 : begin
-            if(xram_read_ack == 1'b1) begin
-              // now xram_data_in is the character code. Fetch from there the pattern.
-              char_code = xram_data_in;  
+            if(ram_read_ack == 1'b1) begin
+              // now mem_data_in is the character code. Fetch from there the pattern.
+              char_code = mem_data_in;  
 
               if(reg1[3] == 1'b1) begin
                 // read M2, if set we have multicolor mode
@@ -529,15 +538,15 @@ end
                 vram_out_addr <= {reg4[2],char_addr[9:8] & reg4[1:0],char_code,ypos[2:0]};
                 // 8 bit code and line in character
               end
-              xram_read_rq <= 1'b1;
+              ram_read_rq <= 1'b1;
               process_pixel <= read_pattern;
             end
-            xram_pipeline_reads <= 1'b1;  // Continue to own the bus once we get it
+            ram_pipeline_reads <= 1'b1;  // Continue to own the bus once we get it
           end
           read_pattern : begin
-            // if(xram_read_ack) begin
+            // if(ram_read_ack) begin
               // store pattern, and work out the address of the color byte
-              // pattern will be ready in the next cycle in pipeline mode: char_pattern = xram_data_in; 
+              // pattern will be ready in the next cycle in pipeline mode: char_pattern = mem_data_in; 
               if(reg0[1] == 1'b0) begin  // Graphics mode 1
                 vram_out_addr <= {reg3,1'b0,char_code[7:3]};
               end
@@ -550,27 +559,27 @@ end
               process_pixel <= read_color;
               // now char addr is no longer used and we can increment to next.
               char_addr <= (char_addr) + 1;
-              xram_read_rq <= 1'b1;
+              ram_read_rq <= 1'b1;
             // end    
-            xram_pipeline_reads <= 1'b1;  // Continue to own the bus
+            ram_pipeline_reads <= 1'b1;  // Continue to own the bus
           end
           read_color : begin
-            // if(xram_read_ack) begin
-              // Due to pipelining color only ready in the next cycle: color_data <= xram_data_in;
+            // if(ram_read_ack) begin
+              // Due to pipelining color only ready in the next cycle: color_data <= mem_data_in;
               // process_pixel <= write_pixels;
               process_pixel <= grab_pattern;
               pixel_count <= reg1[4] ? 6 : 8; // text mode if reg1[4] is set, character cells are 6 pixels wide
               sprite_out <= 1'b0;             // This is not a sprite.
             // end 
-            xram_pipeline_reads <= 1'b1;  // Continue to own the bus
+            ram_pipeline_reads <= 1'b1;  // Continue to own the bus
           end
           grab_pattern: begin
-            char_pattern <= xram_data_in;  // Grab pattern, there is a delay due to pipelining
+            char_pattern <= mem_data_in;  // Grab pattern, there is a delay due to pipelining
             process_pixel <= grab_color;
-            xram_pipeline_reads <= 1'b1;  // Continue to own the bus
+            ram_pipeline_reads <= 1'b1;  // Continue to own the bus
           end
           grab_color: begin
-            color_data <= xram_data_in;
+            color_data <= mem_data_in;
             process_pixel <= write_pixels;
             // Note here we drop pipelining
           end 
@@ -598,13 +607,13 @@ end
                   vram_out_addr <= vram_addr;
                   refresh_return_state <= refresh_state;
                   refresh_state <= cpu_vram_read0;
-                  xram_read_rq <= 1'b1;
+                  ram_read_rq <= 1'b1;
                 end else if (cpu_mem_write || cpu_mem_write_pending) begin
                   // CPU makes a write cycle to VRAM
                   vram_out_addr <= vram_addr;
                   refresh_return_state <= refresh_state;
                   refresh_state <= cpu_vram_write0;
-                  xram_write_rq <= 1'b1;
+                  ram_write_rq <= 1'b1;
                 end              
               end
             end
@@ -637,11 +646,11 @@ end
           // start reading sprite 0 Y-coordinate
           active_sprites <= {6{1'b0}};
           // Request external memory bus and enter pipelined mode.
-          xram_read_rq <= 1'b1;
+          ram_read_rq <= 1'b1;
         end
         count_active_sprites : begin
-          if(xram_read_ack == 1'b1) begin                
-            if(xram_data_in == 8'hD0) begin
+          if(ram_read_ack == 1'b1) begin                
+            if(mem_data_in == 8'hD0) begin
               // end of displayed sprites: display sprites with a lower number than this one.
               refresh_state <= sprite_next;
             end
@@ -656,7 +665,7 @@ end
                 sprite_counter <= sprite_counter_next;
                 sprite_counter_next <= (sprite_counter_next) + 1;
                 vram_out_addr <= {reg5[6:0],sprite_counter_next,2'b00};
-                xram_read_rq <= 1'b1;
+                ram_read_rq <= 1'b1;
               end
             end
           end
@@ -664,41 +673,41 @@ end
         sprites_addr : begin
           vram_out_addr <= {reg5[6:0],sprite_counter,2'b00};
           refresh_state <= sprite_read_vert;
-          xram_read_rq <= 1'b1;
+          ram_read_rq <= 1'b1;
         end
         sprite_read_vert : begin
-          if(xram_read_ack == 1'b1) begin                
-            if(xram_data_in == 8'hD0) begin
+          if(ram_read_ack == 1'b1) begin                
+            if(mem_data_in == 8'hD0) begin
               // vertical count D0 (208) stop immediately processing
               refresh_state <= wait_line;   // BUGBUG EPEP This does not really work, the code below overwrites this.
             end else begin
-              if(xram_data_in[7:5] == 3'b111) begin
-                sprite_y <= {1'b0,xram_data_in};
+              if(mem_data_in[7:5] == 3'b111) begin
+                sprite_y <= {1'b0,mem_data_in};
               end
               else begin
-                sprite_y <= {1'b1,xram_data_in};
+                sprite_y <= {1'b1,mem_data_in};
               end
               vram_out_addr <= {reg5[6:0],sprite_counter,2'b01};
               refresh_state <= sprite_read_horiz;
-              xram_read_rq <= 1'b1;
+              ram_read_rq <= 1'b1;
             end
           end
         end
         sprite_read_horiz : begin
-          if(xram_read_ack == 1'b1) begin                
+          if(ram_read_ack == 1'b1) begin                
             // sprite_line <= unsigned("1" & ypos) - unsigned("0" & sprite_y);
             sprite_line <= ({1'b1,ypos}) - (sprite_y) - 1;
-            sprite_x <= xram_data_in;
+            sprite_x <= mem_data_in;
             vram_out_addr <= {reg5[6:0],sprite_counter,2'b10};
             refresh_state <= sprite_read_char;
-            xram_read_rq <= 1'b1;
+            ram_read_rq <= 1'b1;
           end
         end
         sprite_read_char : begin
-          if(xram_read_ack == 1'b1) begin 
+          if(ram_read_ack == 1'b1) begin 
             // First condition for 16x16 and second for 8x8 sprite sizes.
             if((reg1[1] == 1'b1 && sprite_line[8:4] == 5'b00000) || (reg1[1] == 1'b0 && sprite_line[8:3] == 6'b000000)) begin
-              sprite_name <= xram_data_in;
+              sprite_name <= mem_data_in;
               vram_out_addr <= {reg5[6:0],sprite_counter,2'b11};
               refresh_state <= sprite_read_color;
               active_sprites <= (active_sprites) + 1;
@@ -707,7 +716,7 @@ end
                 sig_5th_pending <= 1'b1;
                 stat_reg[4:0] <= sprite_counter;
               end
-              xram_read_rq <= 1'b1;
+              ram_read_rq <= 1'b1;
             end else begin
               // sprite does not belong to this scanline. Either the offset is negative or beyound 15 ("1111")
               refresh_state <= sprite_next;
@@ -715,8 +724,8 @@ end
           end
         end
         sprite_read_color : begin
-          if(xram_read_ack == 1'b1) begin                        
-            sprite_color <= xram_data_in;
+          if(ram_read_ack == 1'b1) begin                        
+            sprite_color <= mem_data_in;
             if(reg1[1] == 1'b1) begin
               // 16x16 sprite
               vram_out_addr <= {reg6[2:0],sprite_name[7:2],1'b0,sprite_line[3:0]};
@@ -726,29 +735,29 @@ end
               vram_out_addr <= {reg6[2:0],sprite_name[7:0],sprite_line[2:0]};
             end
             refresh_state <= sprite_read_pattern0;
-            xram_read_rq <= 1'b1;
+            ram_read_rq <= 1'b1;
           end
         end
         sprite_read_pattern0 : begin
-          if(xram_read_ack == 1'b1) begin                        
+          if(ram_read_ack == 1'b1) begin                        
             if(sprite_color[3:0] == 4'b0000) begin
               sprite_pixels[15:8] <= 8'h00;
               // this sprite is transparent. Still need to "write" pixels to detect collisions
             end
             else begin
-              sprite_pixels[15:8] <= xram_data_in;
+              sprite_pixels[15:8] <= mem_data_in;
             end
             vram_out_addr <= {reg6[2:0],sprite_name[7:2],1'b1,sprite_line[3:0]};
             refresh_state <= sprite_read_pattern1;
-            xram_read_rq <= 1'b1;
+            ram_read_rq <= 1'b1;
           end
         end
         sprite_read_pattern1 : begin
-          if(xram_read_ack == 1'b1) begin                        
+          if(ram_read_ack == 1'b1) begin                        
             if(sprite_color[3:0] == 4'b0000) begin
               sprite_pixels[7:0] <= 8'h00;
             end else begin
-              sprite_pixels[7:0] <= xram_data_in;
+              sprite_pixels[7:0] <= mem_data_in;
             end
             sprite_write_count <= {reg1[1],3'b111}; // 8x8: "0111", 16x16: "1111"
             refresh_state <= sprite_write_pattern_setup;
@@ -831,20 +840,20 @@ end
               vram_out_addr <= vram_addr;
               refresh_return_state <= refresh_state;
               refresh_state <= cpu_vram_read0;
-              xram_read_rq <= 1'b1;
+              ram_read_rq <= 1'b1;
             end else if (cpu_mem_write || cpu_mem_write_pending) begin
               // CPU makes a write cycle to VRAM
               vram_out_addr <= vram_addr;
               refresh_return_state <= refresh_state;
               refresh_state <= cpu_vram_write0;
-              xram_write_rq <= 1'b1;
+              ram_write_rq <= 1'b1;
             end
           end
         end
         cpu_vram_read0: begin
-          if(xram_read_ack) begin
+          if(ram_read_ack) begin
             refresh_state <= refresh_return_state;
-            mem_rd_bus <= xram_data_in;
+            mem_rd_bus <= mem_data_in;
             cpu_mem_read_pending <= 1'b0;
             cpu_read_already_done <= 1'b1;
             bump_rq <= 1'b1;
@@ -852,7 +861,7 @@ end
           end
         end
         cpu_vram_write0: begin  // Simply wait for the write cycle to get done.
-          if(xram_write_ack) begin
+          if(ram_write_ack) begin
             refresh_state <= refresh_return_state;
             cpu_mem_write_pending <= 1'b0;
             bump_rq <= 1'b1;
@@ -903,9 +912,50 @@ end
     .dout_b( {line_buf_bit8_out, line_buf_porta_out })
   );
 
-  // vram_write
-  assign xram_data_out = data_in;
-  assign xram_addr = vram_out_addr;
+`ifdef EXTERNAL_VRAM  
+  // VRAM is external.
+  assign xram_data_out  = data_in;
+  assign xram_addr      = vram_out_addr;
+  assign mem_data_in    = xram_data_in;
+  assign xram_write_rq  = ram_write_rq;
+  assign xram_read_rq   = ram_read_rq;
+  assign xram_pipeline_reads = ram_pipeline_reads;
+  assign ram_read_ack   = xram_read_ack;
+  assign ram_write_ack  = xram_write_ack;
+`else
+  // Internal block RAM used for VRAM.
+  assign xram_addr      = 0;
+  assign xram_write_rq  = 0;
+  assign xram_read_rq   = 0;
+  assign xram_pipeline_reads = 0;
+  wire   ram_read_ack;
+  reg    [1:0] read_ack_delay = 2'b00;
+  assign ram_read_ack = read_ack_delay[1];
+  assign ram_write_ack  = 1;
+    reg [7:0] ram_read_buffer;
+  wire [7:0] ram_read_out;
+  assign mem_data_in = ram_read_buffer;
+
+  always @(posedge clk)
+  begin 
+    // Simulate external ram controller by delaying data reads.
+     read_ack_delay <= { read_ack_delay[0], ram_read_rq };
+    // Delay data output with one cycle
+    ram_read_buffer <= ram_read_out;  
+  end
+
+  dualport_par #(.WIDTH(8), .DEPTH(14)) FRAMEBUFFER (
+    // Port A, write port
+    .clk_a(clk),
+    .we_a(ram_write_rq),
+    .addr_a(vram_out_addr),
+    .din_a(data_in),  // The write data always comes from the CPU
+    // Port B, our read port
+    .clk_b(clk),
+    .addr_b(vram_out_addr),
+    .dout_b(ram_read_out)  // Data read from VRAM goes always to mem_data_in bus.
+  );
+`endif
   
   VGA_SYNC vgadriver(
     .clk(clk),

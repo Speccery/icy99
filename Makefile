@@ -15,7 +15,7 @@ VERILOGS = src/ram2.v \
 all: erik9900.bin
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
-	yosys  -q -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v
+	yosys  -q -DEXTERNAL_VRAM -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v
 
 erik9900.txt: erik9900.blif
 	arachne-pnr -r -d 8k -P tq144:4k -p blackice-ii.pcf erik9900.blif -o erik9900.txt
@@ -27,7 +27,7 @@ erik9900.bin: erik9900.txt
 
 # NEXTPNR ROUTING
 next9900.json: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
-	yosys  -q -p 'synth_ice40 -json next9900.json -top top_blackice2 -blif next9900.blif' $(VERILOGS) top_blackice2.v
+	yosys  -q  -DEXTERNAL_VRAM -p 'synth_ice40 -json next9900.json -top top_blackice2 -blif next9900.blif' $(VERILOGS) top_blackice2.v
 
 next9900.asc: next9900.json 
 	nextpnr-ice40 --hx8k --asc next9900.asc --json next9900.json --package tq144:4k --pcf blackice-ii.pcf --pcf-allow-unconstrained
