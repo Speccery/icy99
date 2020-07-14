@@ -3,8 +3,10 @@ TI-99/4A FPGA implementation for the Icestorm toolchain.
 
 2020-07-14 A couple of changes
 ==============================
+Tested these changes with ULX3S and Blackice-II boards.
 * Keyboard input from PS/2 keyboard improved. Now the cursor keys work, fixed the "minus" key, and backspace is the same as cursor left. Much easier to use.
 * New definition EXTERNAL_VRAM can be used to define whether VRAM is in external memory or not. For the Blackice-II target it must be defined, as there is not enough block RAM on-chip. But for larger FPGAs, this can be left undefined, and then FPGA's internal block RAM will be used for VRAM. This is useful as in the future SDRAM support will be added for the ULX3S and hopefully Flea Ohm board too. With VRAM accesses out of the way, the CPU can access leisurely SDRAM even with a slow SDRAM controller, that is the idea.
+* Internal block RAMs are all operated with 25MHz clock if EXTERNAL_VRAM is defined. If it is not defined, the VRAM clocks on the toplevel module run off the 125MHz (DVI video PLL).
 
 Initial commit 2020-06-15 
 =========================
