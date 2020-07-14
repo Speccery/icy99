@@ -1,6 +1,10 @@
 # icy99
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 
+
+Partially now merged with emard's tree. Namely the ESP32 and OSD support are now included, but the ESP32 cannot yet access the memory of the TI-99/4A as I am still using my serloader component for testing.
+
+
 2020-07-14 A couple of changes
 ==============================
 Tested these changes with ULX3S and Blackice-II boards.
