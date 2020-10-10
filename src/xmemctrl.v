@@ -15,10 +15,13 @@ module xmemctrl(
   input  wire [15:0] SRAM_DAT_in,
   output wire SRAM_DAT_drive,
   output wire [17:0] SRAM_ADR,
+  output wire addr_strobe,
   output wire SRAM_CE,
   output wire SRAM_WE,
   output wire SRAM_OE,
   output reg [1:0] SRAM_BE,
+  input  wire memory_busy,
+  input  wire use_memory_busy,
 
   // CPU address bus for external memory
   input wire [18:0] xaddr_bus,
@@ -75,7 +78,8 @@ parameter [3:0]
   vdp_wr0 = 11,
   vdp_wr1 = 12,
   cpu_pre_wr2 = 13,
-  cpu_rd1 = 14;
+  cpu_rd1 = 14,
+  cpu_rd1_busy = 15;
 
 reg [3:0] mem_state = idle;
 reg mem_drive_bus = 1'b0; // High when external memory controller is driving bus
@@ -97,6 +101,9 @@ reg vdp_last_addr0; // For pipelining, it is necessary to remember the LSB of ad
 reg vdp_first_pipelined_read;
 
   assign SRAM_ADR = addr;
+
+reg as_out;
+assign addr_strobe = as_out;
   
   // Static RAM databus driving
   // assign SRAM_DAT_out = 
@@ -129,6 +136,7 @@ reg vdp_first_pipelined_read;
       cpu_mem_read_pending <= 1'b0;
       vdp_read_pending <= 1'b0;
       vdp_write_pending <= 1'b0;
+      as_out <= 1'b0;
     end
     else begin
       // for flash loading, sample the status of flashRamWE_n
@@ -153,6 +161,7 @@ reg vdp_first_pipelined_read;
       vdp_write_ack <= 1'b0;
       cpu_wr_ack <= 1'b0;
       cpu_rd_ack <= 1'b0;
+      as_out <= 1'b0;
       // memory controller state machine
       case(mem_state)
       idle : begin
@@ -168,6 +177,7 @@ reg vdp_first_pipelined_read;
           vdp_read_pending <= 1'b0;
           vdp_last_addr0 <= vdp_addr[0];
           addr <= { 5'b01000, vdp_addr[13:1]};  // VRAM at 128K
+          as_out <= 1'b1;
           accessor <= access_vdp;
           ram_cs_n <= 1'b0;                 // init read cycle
           sram_oe_n <= 1'b0;
@@ -180,6 +190,7 @@ reg vdp_first_pipelined_read;
         end else if (vdp_write_rq || vdp_write_pending) begin
           vdp_write_pending <= 1'b0;
           addr <= { 5'b01000, vdp_addr[13:1]};  // VRAM at 128K
+          as_out <= 1'b1;
           vdp_last_addr0 <= vdp_addr[0];        // Writes are not pipelined, but this controls byte enables
           accessor <= access_vdp;
           SRAM_DAT_out <= { vdp_data_in, vdp_data_in };
@@ -194,6 +205,7 @@ reg vdp_first_pipelined_read;
           // For this ICE40HX version I am not sure if this will be used. Only support writing to the low 256K.
           // Note that addresses from flashAddrOut are byte address but LSB set to zero
           addr <= { 1'b0, flashAddrOut[17:1]};  // 256K range from 00000
+          as_out <= 1'b1;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;    // only writes drive the bus (for non-CPU writes)
           accessor <= access_flash_ldr;
@@ -203,6 +215,7 @@ reg vdp_first_pipelined_read;
         else if(mem_write_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
           // normal memory write by memory controller circuit
           addr <= mem_addr[18:1]; // setup address
+          as_out <= 1'b1;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;  // only writes drive the bus
           accessor <= access_mem_serloader;
@@ -211,6 +224,7 @@ reg vdp_first_pipelined_read;
         end
         else if(mem_read_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
           addr <= mem_addr[18:1];           // setup address
+          as_out <= 1'b1;
           mem_state <= rd0;
           mem_drive_bus <= 1'b0;
           accessor <= access_mem_serloader;
@@ -219,6 +233,7 @@ reg vdp_first_pipelined_read;
         else if((cpu_rd_rq == 1'b1 && MEM_n == 1'b0) || cpu_mem_read_pending == 1'b1) begin
           // init CPU read cycle
           addr <= xaddr_bus;
+          as_out <= 1'b1;
           mem_state <= cpu_rd1;
           ram_cs_n <= 1'b0;                 // init read cycle
           sram_oe_n <= 1'b0;
@@ -230,6 +245,7 @@ reg vdp_first_pipelined_read;
         else if((cpu_wr_rq == 1'b1 && MEM_n == 1'b0) || cpu_mem_write_pending == 1'b1) begin
           // init CPU write cycle
           addr <= xaddr_bus;
+          as_out <= 1'b1;
           mem_state <= cpu_pre_wr2;     
           // signals moved from here to cpu_pre_wr2, the CPU data bus out not ready yet        
         end 
@@ -240,7 +256,10 @@ reg vdp_first_pipelined_read;
         sram_we_n <= 1'b0;
         mem_state <= wr1;
       end
-      wr1 : mem_state <= wr2; // waste time
+      wr1 : begin
+        if (!use_memory_busy || (use_memory_busy && !memory_busy))
+          mem_state <= wr2; // waste time
+      end
       wr2 : begin
         // terminate memory write cycle
         sram_we_n <= 1'b1;
@@ -257,7 +276,10 @@ reg vdp_first_pipelined_read;
         sram_oe_n <= 1'b0;
         mem_state <= rd1;
       end
-      rd1 : mem_state <= rd2; // waste some time
+      rd1 : begin
+        if (!use_memory_busy || (use_memory_busy && !memory_busy))
+          mem_state <= rd2; // waste some time
+      end
       rd2 : begin
         if(mem_addr[0] == 1'b1) begin
           mem_data_in <= SRAM_DAT_in[7:0];
@@ -282,7 +304,18 @@ reg vdp_first_pipelined_read;
         // CPU read cycle
       end
       cpu_rd1 : begin
-        mem_state <= cpu_rd2; // Use two clock cycles for CPU reads
+        // The external circuit may need a cycle to prepare memory_busy signal.
+        // Thus use_memory_busy (generated with address decoding only) is used
+        // to jump to an intermediate state where memory_busy is considered.
+        if (use_memory_busy)  
+          mem_state <= cpu_rd1_busy;  
+        else
+          mem_state <= cpu_rd2;
+      end
+      cpu_rd1_busy: begin
+        // Stall here for as long as memory is busy.
+        if (!use_memory_busy || (use_memory_busy && !memory_busy))
+          mem_state <= cpu_rd2; // Use two clock cycles for CPU reads
       end
       cpu_rd2 : begin
         data_read_for_cpu <= SRAM_DAT_in;
@@ -311,15 +344,16 @@ reg vdp_first_pipelined_read;
           accessor <= access_cpu;
           SRAM_DAT_out <= data_from_cpu;
           SRAM_BE <= 2'b00;
-
           mem_state <= cpu_wr2;     
       end
       cpu_wr2 : begin
-        sram_we_n <= 1'b1;
-        ram_cs_n <= 1'b1;
-        mem_drive_bus <= 1'b0;
-        cpu_wr_ack <= 1'b1;
-        mem_state <= grace;
+          if (!use_memory_busy || (use_memory_busy && !memory_busy)) begin
+            sram_we_n <= 1'b1;
+            ram_cs_n <= 1'b1;
+            mem_drive_bus <= 1'b0;
+            cpu_wr_ack <= 1'b1;
+            mem_state <= grace;
+          end
       end
       vdp_rd0: begin
         vdp_data_out <= vdp_last_addr0 ? SRAM_DAT_in[7:0] : SRAM_DAT_in[15:8];

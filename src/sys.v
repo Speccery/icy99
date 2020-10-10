@@ -9,8 +9,11 @@ module sys(
     tms9902_tx, tms9902_rx, 
     RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
     ADR, 
+    addr_strobe,
     sram_pins_din, sram_pins_dout,
     sram_pins_drive,
+    memory_busy,      // if set memory is busy, wait a cycle
+    use_memory_busy,  // if set memory_busy signal above is valid
     red, green, blue, hsync, vsync,
     cpu_reset_switch_n,
     // LCD signals
@@ -25,7 +28,7 @@ module sys(
   input  tms9902_rx;
   output tms9902_tx;
   input wire ps2clk, ps2dat;
-
+  
   // SRAM pins
   output RAMOE;
   output RAMWE;
@@ -33,9 +36,14 @@ module sys(
   output RAMLB;
   output RAMUB;
   output [17:0] ADR;
+  output addr_strobe;
   output [15:0] sram_pins_dout;
   input  [15:0] sram_pins_din;
   output sram_pins_drive;
+
+  // memory busy
+  input wire memory_busy;
+  input wire use_memory_busy;
 
   // VGA
   output [3:0] red, green, blue;
@@ -502,7 +510,9 @@ tms9918 vdp(
     .clock(clk), .reset(reset),
     .SRAM_DAT_out(sram_pins_dout), .SRAM_DAT_in(sram_pins_din), .SRAM_DAT_drive(sram_pins_drive),
     .SRAM_ADR(ADR),
+    .addr_strobe(addr_strobe),
     .SRAM_CE(RAMCS), .SRAM_OE(RAMOE), .SRAM_WE(RAMWE), .SRAM_BE({ RAMUB, RAMLB}),
+    .memory_busy(memory_busy), .use_memory_busy(use_memory_busy),
     // Mapped address bus from CPU
     .xaddr_bus(xaddr_bus), 
     // flash load port not used now. Set everything to zero.
