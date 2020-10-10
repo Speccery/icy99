@@ -228,7 +228,9 @@ module top_ulx3s
   // Thus ADR[14] is CPU A15.
   wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
   wire dsr_sel = (ADR[17:12] == 6'b000_010);    //  8K @ 04000
+`ifndef PAD_IN_SDRAM  
   wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
+`endif
   wire gro_sel = (ADR[17:15] == 3'b001);        // 64K @ 10000 (actually 56K)
   `ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[17:13] == 5'b010_00);     // 16K @ 20000
@@ -237,7 +239,12 @@ module top_ulx3s
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[17:12] == 6'b000_001) 
               || (ADR[17:12] == 6'b000_101)  
-              || (ADR[17:13] == 5'b000_11); 
+              || (ADR[17:13] == 5'b000_11)
+`ifdef PAD_IN_SDRAM
+              || (ADR[17: 9] == 9'b000_1000_00) //  1K @ 08000 
+`endif              
+              
+              ; 
 
   // Note address bit numbering, we are dealing here with words addresses. Thus A0 is not high/low byte select.
   // In comments below A14 and A13 refer to TMS9900 address bits, with word addresses they are A13 and A12.
@@ -249,11 +256,13 @@ module top_ulx3s
   wire [7:0] rom_out_lo, rom_out_hi;
   rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_25mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
   // SCRATCHPAD (here 1K not 256bytes)
+`ifndef PAD_IN_SDRAM
   wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;
   wire pad_we_hi = pad_sel && !RAMUB && !RAMWE;
   wire [7:0] pad_out_lo, pad_out_hi;
   dualport_par #(8, 9) pad_lb(pll_25mhz, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[ 8:0], pad_out_lo);
   dualport_par #(8, 9) pad_hb(pll_25mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_25mhz, ADR[ 8:0], pad_out_hi);
+`endif
 
   // GROM 24K
   wire [7:0] gro_out_lo, gro_out_hi;
@@ -319,8 +328,9 @@ module top_ulx3s
   reg [6:0] busy_count = 7'h00;
   wire memory_busy = (|busy_count);
 
-  wire my_as = addr_strobe & ram_sel; // & (!RAMWE | !RAMOE);
-  reg  my_as_q;
+  wire my_as = addr_strobe & ram_sel; // Address strobe: Combinatorial
+  reg  my_as_q;                       // Address strobe: Latched and thus delayed by one clock. It fixes SDRAM.
+  wire sdram_done;
 
   // generate wait states for SDRAM access
   always @(posedge clk)
@@ -328,9 +338,8 @@ module top_ulx3s
     my_as_q <= my_as; // DEBUGGING: Delay the strobe issue to SDRAM controller by on cycle. 
 
     busy_count <= (|busy_count) ? busy_count - 7'd1 : 0;
-    if (my_as) begin
-      busy_count <= 7'd100;
-    end 
+    if (my_as)      busy_count <= 7'd100;
+    if (sdram_done) busy_count <= 0; // stop the delay generator
   end
 
   // Debug signals
@@ -342,11 +351,9 @@ module top_ulx3s
   assign gp[9] = RAMWE;
   assign gp[12] = ram_sel;
 
-
   SDRAM sdram_i (
     .clk_in(clk_sdram),     // controller clock
-
-  // interface to the chip
+    // interface to the SDRAM chip
     .sd_data(sdram_d),          // 16 bit databus
     .sd_addr(sdram_a),          // 13 bit multiplexed address bus
     .sd_dqm(sdram_dqm),         // two byte masks
@@ -357,83 +364,16 @@ module top_ulx3s
     .sd_cas(sdram_casn),        // columns address select
     .sd_cke(sdram_cke),         // clock enable
     .sd_clk(sdram_clk),         // chip clock (inverted from input clk)
-
-  // M68K interface
+    // interface to TMS9900 et al
     .din(sram_pins_dout),        // data input from cpu
     .dout(ram_expansion_out),    // data output to cpu
     .ad({ 9'b0_0000_0000, ADR[14:0]}),       // 24 bit word address
     .as(my_as_q),               // address strobe (active low - start memory cycle)
     .nwr(RAMWE),                // cpu/chipset requests write
-    .rst(~R_btn_resetn)         // cpu reset (active high)
+    .rst(~R_btn_resetn),        // cpu reset (active high)
+    .ack(sdram_done)
   );
 
-
-  //----------------------------------------------------
-  // reg my_asn = 1'b1;
-  //   wire go_sdram_n = !(ram_sel && (!RAMWE || !RAMOE));
-  // reg previous_go_sdram_n = 1'b1;
-  // always @(posedge clk)
-  // begin 
-  //   my_asn <= 1'b1;
-  //   if (previous_go_sdram_n == 1'b1 && go_sdram_n == 1'b0) begin
-  //     busy_count <= 7'd100;
-  //     my_asn <= 1'b0;         // our sdram cycle
-  //   end 
-    
-  //   busy_count = (|busy_count) ? busy_count - 7'd1 : 0;
-  //   previous_go_sdram_n <= go_sdram_n;
-  // end
-
-  // sdram_pnru_68k_180deg sdram_i (
-  //   .clk_in(clk_sdram),     // controller clock
-
-  // // interface to the chip
-  //   .sd_data(sdram_d),          // 16 bit databus
-  //   .sd_addr(sdram_a),          // 13 bit multiplexed address bus
-  //   .sd_dqm(sdram_dqm),         // two byte masks
-  //   .sd_ba(sdram_ba),           // two banks
-  //   .sd_cs(sdram_csn),          // chip select
-  //   .sd_we(sdram_wen),          // write enable
-  //   .sd_ras(sdram_rasn),        // row address select
-  //   .sd_cas(sdram_casn),        // columns address select
-  //   .sd_cke(sdram_cke),         // clock enable
-  //   .sd_clk(sdram_clk),         // chip clock (inverted from input clk)
-
-  // // M68K interface
-  //   .din(sram_pins_dout),        // data input from cpu
-  //   .dout(ram_expansion_out),    // data output to cpu
-  //   .addr({ 9'b0_0000_0000, ADR[14:0]}),       // 24 bit word address
-  //   .udsn(1'b0),                // upper data strobe (active low)
-  //   .ldsn(1'b0),                // lower data strobe (active low)
-  //   .asn(my_asn),               // address strobe (active low - start memory cycle)
-  //   .rw(RAMWE),                 // cpu/chipset requests write
-  //   .rst(~R_btn_resetn)         // cpu reset (active high)
-  // );
-
-  //----------------------------------------------------
-  // sdram sdram_i
-  // (
-  //   .SDRAM_DQ(sdram_d),
-  //   .SDRAM_A(sdram_a),
-  //   .SDRAM_DQML(sdram_dqm[0]),
-  //   .SDRAM_DQMH(sdram_dqm[1]),
-  //   .SDRAM_BA(sdram_ba),
-  //   .SDRAM_nCS(sdram_csn),
-  //   .SDRAM_nWE(sdram_wen),
-  //   .SDRAM_nRAS(sdram_rasn),
-  //   .SDRAM_nCAS(sdram_casn),
-
-  //   .init(~R_btn_resetn),
-  //   .clk(clk_sdram),
-  //   .addr({ 9'b0_0000_0000, ADR[14:0],1'b0}),
-  //   .rd(ram_exp_rd),
-  //   .wr(ram_exp_wr),
-  //   .wbs(2'b11),
-  //   .din(sram_pins_dout),
-  //   .dout(ram_expansion_out),
-  //   .busy(memory_busy),
-  //   .word(1'b1)
-  // );
 `else
   wire use_memory_busy = 1'b0;
   wire memory_busy = 1'b0;
@@ -442,7 +382,9 @@ module top_ulx3s
   // Data input multiplexer
   assign sram_pins_din = 
     rom_sel ? { rom_out_hi, rom_out_lo } :
+`ifndef PAD_IN_SDRAM
     pad_sel ? { pad_out_hi, pad_out_lo } :
+`endif
 `ifdef EXTERNAL_VRAM    
     vra_sel ? { vra_out_hi, vra_out_lo } :
 `endif    

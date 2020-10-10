@@ -29,7 +29,8 @@ module SDRAM (
   input      [23:0] ad,         // 24 bit word address
   input             as,         // as, start of new CPU machine cycle
   input             nwr,        // cpu write cycle
-  input             rst         // cpu reset
+  input             rst,        // cpu reset
+  output reg        ack         // Erik: ack out
 );
 
   localparam RASCAS_DELAY   = 3'd3;   // tRCD=20ns -> 3 cycles @ >100MHz
@@ -56,6 +57,7 @@ module SDRAM (
   localparam STATE_CMD_CAS   = STATE_FIRST  + RASCAS_DELAY; // prep CAS cycle
   localparam STATE_READ      = STATE_CMD_CAS + CAS_LATENCY + 1;
   localparam STATE_CMD_RFSH  = STATE_READ + 1;
+  localparam STATE_CMD_DONE  = 10;  // Erik: here we send ack out
 
   reg [3:0] t;
 
@@ -112,6 +114,7 @@ module SDRAM (
 
   always @(posedge clk_in) begin
     sd_cmd <= CMD_INHIBIT;  // default: idle
+    ack <= 1'b0;            // default: no ack
     
     // move to next state
     t <= t + !(&t);
@@ -145,6 +148,11 @@ module SDRAM (
       STATE_CMD_CAS+1: sd_data_wr <= 1'b0; // revert sd_data to hi-z
       // refresh phase
       STATE_CMD_RFSH:  sd_cmd <= CMD_AUTO_REFRESH;
+      STATE_CMD_DONE:   ack <= 1'b1;  // Show the ack for 5 cycles to make sure it seen 
+      STATE_CMD_DONE+1: ack <= 1'b1;  // by the lower clock speed side.
+      STATE_CMD_DONE+2: ack <= 1'b1;
+      STATE_CMD_DONE+3: ack <= 1'b1;
+      STATE_CMD_DONE+4: ack <= 1'b1; 
       endcase
     end
   end

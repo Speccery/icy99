@@ -62,13 +62,9 @@ VERILOGS_ULX3S = \
  osd/spi_osd.v \
  osd/spi_ram_btn.v \
  osd/spirw_slave_v.v 
- #  src/sdram_pnru_68k_180deg.v \
- #  src/sdram.sv \
- # src/sys_bl32.v 
-
-# $(YOSYS) -q -DUSE_SDRAM -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
+ 
 ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
+	$(YOSYS) -q -DUSE_SDRAM -DPAD_IN_SDRAM -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
 
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
