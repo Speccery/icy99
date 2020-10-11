@@ -70,6 +70,7 @@ reg bump_rq;
 reg vdp_rd_prev;
 reg vdp_mode_prev;
 reg [1:0] vdp_addr_prev;  // video refresh circuit
+wire columns_80 = reg0[2];
 //	signal vga_addr	: std_logic_vector(13 downto 0);
 //	signal vga_out		: std_logic_vector(7 downto 0);	-- VRAM read bus for refresh
 reg clk25MHz;  // 25MHz 25/75 clock
@@ -229,6 +230,15 @@ end
                     addr == 8'h4D ? dbg_bytes_read_count :
                      0;
 
+  //////////////////////////////////////////////////////////////////////////////////////////////
+  // PPPP   III X   X EEEEE L      SSSS         SSSS TTTTTT  AAA  RRRR  TTTTT
+  // P   P   I   X X  E     L     S            S       T    A   A R   R   T
+  // PPPP    I    X   EEE   L      SSS          SSS    T    AAAAA RRRR    T
+  // P       I   X X  E     L         S            S   T    A   A R R     T
+  // P      III X   X EEEEE LLLLL SSSS         SSSS    T    A   A R  R    T
+  //////////////////////////////////////////////////////////////////////////////////////////////
+  // Here is the pixel pump.
+  // 
   // The original design of this module was for Xilinx Spartan in VHDL.
   // In this port, to be compatible with Lattice ICE40HX, the design runs at a lower clock speed
   // and with less capable dual port RAMs. As a consequence, here is a logic block to shift and 
@@ -243,7 +253,7 @@ end
   //    pixel_write     - write enable to line buffer
   //    vga_line_buf_in - data to be written to line buffer
   //    pixel_toggler   - toggles to write pixels twice
-  //    vga_line_buffer_addr - address to write pixels into
+  //    wr_render_addr  - address to write pixels into
   reg         wr_go = 1'b0, gogo = 1'b0;
   reg [15:0]  wr_pattern_out, pattern_out;
   reg [3:0]   wr_color0, wr_color1;
@@ -266,7 +276,10 @@ end
       wr_pixel_count <= pixel_count;
       wr_pattern_out <= pattern_out;
       wr_sprite <= sprite_out;    // if 1 we are processing sprite pixels, i.e. reading them first and then writing to detect collisions
-      wr_pixel_toggler <= sprite_out ? 2'b10 : 2'b00;  // For sprites start with state 2, i.e. read pixel.
+      // wr_pixel_toggler: For sprites start with state 2, i.e. read pixel. 
+      //                   With 80 columns, start and stay in mode 2'b01 all the time.
+      //                   Otherwise we start from state 2'b00.
+      wr_pixel_toggler <= sprite_out ? 2'b10 : (columns_80 ? 2'b01 : 2'b00);  
       line_buf_bit8_in <= sprite_out; // For sprites we write always the top bit
       wr_render_addr <= vga_line_buf_addr;
       wr_coinc_pending <= 0;
@@ -284,16 +297,16 @@ end
         // On next state we write a sprite pixel.
         // For transparent pixels write the same pixel back (line_buf_porta_out).
         vga_line_buf_in <= wr_pattern_out[15] ? { 4'h0, wr_color1 } : line_buf_porta_out;
-        wr_pixel_toggler <= 2'b00;  
+        wr_pixel_toggler <= (columns_80 ? 2'b01 : 2'b00);  
         pixel_write <= 1'b1;
       end else begin
         // Write pixel, for pattern or sprites
         pixel_write <= !wr_sprite ? 1'b1 : (wr_pixel_toggler == 2'b00);
         vga_line_buf_in <= wr_sprite ? (wr_pattern_out[15] ? { 4'h0, wr_color1 } : line_buf_porta_out) :
           { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 };
-        wr_render_addr <= wr_render_addr + 1;
+        wr_render_addr <= wr_render_addr + 1;   // Don't increment render address on the very first pixel (leftmost) of a cell
         wr_pixel_toggler <= (!wr_sprite || (wr_sprite && wr_pixel_toggler == 2'b00)) ?   
-          { 1'b0, ~wr_pixel_toggler[0]} :  // not a sprite or state 00, just toggle bit 0
+          { 1'b0, (columns_80 ? 1'b1 :   ~wr_pixel_toggler[0])} :  // not a sprite or state 00, just toggle bit 0. With 80 columns stick to 2'b01.
           2'b10;                           // Sprite pixel, go to read previous contents
         if (wr_pixel_toggler == 2'b01) begin
           wr_pixel_count <= wr_pixel_count - 1;
@@ -304,9 +317,16 @@ end
       pixel_write <= 1'b0;
     end
   end
+  //////////////////////////////////////////////////////////////////////////////////////////////
+  // PPPP   III X   X EEEEE L      SSSS         SSSS TTTTTT  OOO  PPPP
+  // P   P   I   X X  E     L     S            S       T    O   O P   P
+  // PPPP    I    X   EEE   L      SSS          SSS    T    O   O PPPP
+  // P       I   X X  E     L         S            S   T    O   O P
+  // P      III X   X EEEEE LLLLL SSSS         SSSS    T     OOO  P
+  //////////////////////////////////////////////////////////////////////////////////////////////
 
   // cpu_mem_read is high when CPU wants to read VRAM
-    wire cpu_mem_read;
+  wire cpu_mem_read;
   reg cpu_read_already_done = 1'b0;
   reg cpu_mem_read_pending = 1'b0;
   assign cpu_mem_read = (rd == 1'b1 && mode == 1'b0 && addr[7:6] == 2'b00) && !cpu_read_already_done;
@@ -325,6 +345,11 @@ end
 
   reg detect_frame_end = 1'b0, detect_line_end = 1'b0;
 
+  // Name table memory base address. In 80 column mode the two LSBs are not used.
+  wire [13:0] name_table_addr = columns_80 ? { reg2[3:2], 12'b0000_0000_0000 } : { reg2[3:0], 10'b00_0000_0000};
+  // Cell width in scanline buffer pixels
+  wire [4:0]  cell_width = columns_80 ? (reg1[4] == 1'b1 ? 6 : 8)      
+                            : (reg1[4] == 1'b1 ? 12 : 16);
 
   always @(posedge clk, posedge reset) begin : P1
     reg [31:0] k;
@@ -384,16 +409,17 @@ end
             vram_addr <= {data_in[5:0],hold_reg};
           end
           2'b10 : begin
-            // write to VDP register
-            case(data_in[2:0])
-            3'b000 : reg0 <= hold_reg;
-            3'b001 : reg1 <= hold_reg;
-            3'b010 : reg2 <= hold_reg;
-            3'b011 : reg3 <= hold_reg;
-            3'b100 : reg4 <= hold_reg;
-            3'b101 : reg5 <= hold_reg;
-            3'b110 : reg6 <= hold_reg;
-            default : reg7 <= hold_reg;
+            // write to VDP register. Changed this code to decode 6 bits of register address
+            // to support 80 column mode. Earlier only decoded 3 bits.
+            case(data_in[5:0])
+            6'd0 : reg0 <= hold_reg;
+            6'd1 : reg1 <= hold_reg;
+            6'd2 : reg2 <= hold_reg;
+            6'd3 : reg3 <= hold_reg;
+            6'd4 : reg4 <= hold_reg;
+            6'd5 : reg5 <= hold_reg;
+            6'd6 : reg6 <= hold_reg;
+            6'd7 : reg7 <= hold_reg;
             endcase
           end
           default : begin
@@ -445,6 +471,8 @@ end
           end else begin
             pixel_out_4bit = reg7[3:0];
           end
+          // if((VGARow & 1) && (VGACol == slv_479 || VGACol == 0))
+          //  pixel_out_4bit = 4'd6;  // Draw a red line here, to see where the heck it is on the screen.
         end else begin
           pixel_out_4bit = 4'h0;
         end
@@ -465,8 +493,13 @@ end
 
         if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00})
           detect_frame_end <= 1'b1;
-        if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760)
+
+        if(VGARow == (({ypos,1'b0}) + disp_start) && VGACol == slv_760) 
+          blanking <= 1'b0; // Remove blanking (only needed for first finished scanline but what the heck)
+
+        if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760) begin
           detect_line_end <= 1'b1;
+        end
 
         if (ram_read_ack)
           dbg_bytes_read_count <= dbg_bytes_read_count + 1;
@@ -474,7 +507,7 @@ end
         case(refresh_state)
         wait_frame : begin
           blanking <= 1'b1;
-          if(detect_frame_end == 1'b1) begin
+          if(detect_frame_end == 1'b1) begin            
             detect_frame_end <= 1'b0;
             // if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00}) begin // EPEP BUG- this may miss if CPU is accessing memory
             // start rendering
@@ -482,10 +515,9 @@ end
             vga_bank <= 1'b0;
             xpos <= 7'd0;
             process_pixel <= setup_read_char;
-            char_addr <= {reg2[3:0],10'b0000000000};
-            // char memory base address
-            char_addr_reload <= {reg2[3:0],10'b0000000000};
-            vga_line_buf_addr <= {9{1'b1}} - 16;  // init to -1, so that first add rolls over to 0
+            char_addr <= name_table_addr;
+            char_addr_reload <= name_table_addr;
+            vga_line_buf_addr <= {9{1'b1}} - cell_width; ;  // init to -1, so that first add rolls over to 0
             ypos <= {8{1'b0}};
             sprite_limit <= 0;
             // Debug counters
@@ -624,11 +656,16 @@ end
             process_pixel <= setup_read_char;
             // loop back this state machine
             xpos <= xpos + 7'd1;
-            vga_line_buf_addr <= vga_line_buf_addr + (reg1[4] == 1'b1 ? 12 : 16); // advance to next character cell, in text mode 6 pixel wide characters
+            vga_line_buf_addr <= vga_line_buf_addr + cell_width; // advance to next character cell.
 
-            if((xpos == 7'd31 && reg1[4] == 1'b0) || (xpos == 7'd39 && reg1[4] == 1'b1)) begin
+            if(  (xpos == 7'd31 && reg1[4] == 1'b0 && !columns_80)  // normal 32 characters wide
+              || (xpos == 7'd39 && reg1[4] == 1'b1 && !columns_80)  // ordinary text mode, 40 chars wide
+              || (xpos == 7'd39 && reg1[4] == 1'b0 && columns_80)   // 64 characters mode (icy99 specific ?)
+              || (xpos == 7'd79 && reg1[4] == 1'b1 && columns_80)   // 80 columns text mode, 80 characters wide
+              ) begin
               xpos <= 7'd0;
-              refresh_state <= process_sprites;
+              // Ignore sprites in text mode.
+              refresh_state <= reg1[4] ? wait_line : process_sprites;
             end
           end
           endcase
@@ -809,10 +846,11 @@ end
             // we arrived at next line boundary, process it
             vga_bank <=  ~vga_bank;
             refresh_state <= process_line;
-            vga_line_buf_addr <= {9{1'b1}}-16;
+            // Init to -1 so that first add in "gogo" rolls over to 0. Also substract cell_width so that first
+            // add of cell width brings us column zero.
+            vga_line_buf_addr <= {9{1'b1}} - cell_width;  
             sprite_limit <= 0;
-            // EP-USTRIP- Fixed from zero to one to init line properly
-            blanking <= 1'b0;
+            // Moved to detection of first line end. blanking <= 1'b0;
             if(ypos[2:0] != 3'b111) begin
               char_addr <= char_addr_reload;  // reload char ptr to beginning of line
             end
@@ -924,6 +962,7 @@ end
   assign ram_write_ack  = xram_write_ack;
 `else
   // Internal block RAM used for VRAM.
+  assign xram_data_out  = 0;
   assign xram_addr      = 0;
   assign xram_write_rq  = 0;
   assign xram_read_rq   = 0;

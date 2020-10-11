@@ -342,20 +342,21 @@ tms9918 vdp(
   // handle memloader writes to the keyboard matrix
   //----------------------------------------------------------
   // keyboard state matrix
-  reg [7:0] keyboard[0:7];
+  reg [7:0] keyboard0, keyboard1, keyboard2, keyboard3, 
+            keyboard4, keyboard5, keyboard6, keyboard7;
   reg [7:0] keyline;
   reg [7:0] bootloader_readback_reg;
 
   initial begin 
     // Initialize all keys to the up state.
-    keyboard[0] = 8'hff;
-    keyboard[1] = 8'hff;
-    keyboard[2] = 8'hff;
-    keyboard[3] = 8'hff;
-    keyboard[4] = 8'hff;
-    keyboard[5] = 8'hff;
-    keyboard[6] = 8'hff;
-    keyboard[7] = 8'hff;
+    keyboard0 = 8'hff;
+    keyboard1 = 8'hff;
+    keyboard2 = 8'hff;
+    keyboard3 = 8'hff;
+    keyboard4 = 8'hff;
+    keyboard5 = 8'hff;
+    keyboard6 = 8'hff;
+    keyboard7 = 8'hff;
   end
 
 
@@ -366,7 +367,16 @@ tms9918 vdp(
     if (bootloader_write_rq && bootloader_addr[20]==1'b1) begin
       case (bootloader_addr[4:3])
         2'b00: begin  // Keyboard input
-          keyboard[bootloader_addr[2:0]] = bootloader_dout;
+          case(bootloader_addr[2:0])
+          3'd0: keyboard0 <= bootloader_dout;
+          3'd1: keyboard1 <= bootloader_dout;
+          3'd2: keyboard2 <= bootloader_dout;
+          3'd3: keyboard3 <= bootloader_dout;
+          3'd4: keyboard4 <= bootloader_dout;
+          3'd5: keyboard5 <= bootloader_dout;
+          3'd6: keyboard6 <= bootloader_dout;
+          3'd7: keyboard7 <= bootloader_dout;
+          endcase
           bootloader_write_ack2 <= 1'b1;
         end
         2'b01: begin  // CPU reset control
@@ -379,7 +389,19 @@ tms9918 vdp(
     end else if(bootloader_read_rq  && bootloader_addr[20]==1'b1) begin
       casez(bootloader_addr[11:0])
       // Keyboard matrix readback
-      12'b0000_0000_0???: bootloader_readback_reg <= keyboard[bootloader_addr[2:0]];
+      12'b0000_0000_0???: 
+        begin
+            case(bootloader_addr[2:0])
+            3'd0: bootloader_readback_reg <= keyboard0;
+            3'd1: bootloader_readback_reg <= keyboard1;
+            3'd2: bootloader_readback_reg <= keyboard2;
+            3'd3: bootloader_readback_reg <= keyboard3;
+            3'd4: bootloader_readback_reg <= keyboard4;
+            3'd5: bootloader_readback_reg <= keyboard5;
+            3'd6: bootloader_readback_reg <= keyboard6;
+            3'd7: bootloader_readback_reg <= keyboard7;
+            endcase
+        end
       // Reset control readback, cpu history registers
       12'b0000_0000_100?: bootloader_readback_reg <= cpu_reset_ctrl;
       12'b0000_0000_1010: bootloader_readback_reg <= cpu_ir[15:8];
@@ -400,14 +422,14 @@ tms9918 vdp(
       bootloader_read_ack2 <= 1'b1; // Note: returned data is just shit
     end 
     case(tms9901_out[4:2])
-    3'd0: keyline = keyboard[0];
-    3'd1: keyline = keyboard[1];
-    3'd2: keyline = keyboard[2];
-    3'd3: keyline = keyboard[3];
-    3'd4: keyline = keyboard[4];
-    3'd5: keyline = keyboard[5];
-    3'd6: keyline = keyboard[6];
-    3'd7: keyline = keyboard[7];
+    3'd0: keyline = keyboard0;
+    3'd1: keyline = keyboard1;
+    3'd2: keyline = keyboard2;
+    3'd3: keyline = keyboard3;
+    3'd4: keyline = keyboard4;
+    3'd5: keyline = keyboard5;
+    3'd6: keyline = keyboard6;
+    3'd7: keyline = keyboard7;
     endcase
   end
 

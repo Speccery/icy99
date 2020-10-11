@@ -69,19 +69,41 @@ module top_blackice2(
   // Serial port assignments end
   wire vde;
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  sys ti994a(clk, LED, 
-    tms9902_tx, tms9902_rx,
-    RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
-    ADR, 
-    sram_pins_din, sram_pins_dout,
-    sram_pins_drive,
-    red, green, blue, hsync, vsync,
-    DIG18,  // cpu_reset_switch_n
-    // LCD signals
-    pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden,
-    serloader_tx, serloader_rx, // bootloader UART
-    vde,    // Video display enable (active area)
-    ps2_clk, ps2_data
+  sys ti994a(
+      .clk(clk), 
+      .LED(LED), 
+      .tms9902_tx(tms9902_tx), 
+      .tms9902_rx(tms9902_rx),
+      .RAMOE(RAMOE), 
+      .RAMWE(RAMWE), 
+      .RAMCS(RAMCS), 
+      .RAMLB(RAMLB), 
+      .RAMUB(RAMUB),
+      .ADR(ADR), 
+      .sram_pins_din(sram_pins_din), 
+      .sram_pins_dout(sram_pins_dout),
+      .sram_pins_drive(sram_pins_drive),
+      .memory_busy(1'b0),
+      .use_memory_busy(1'b0),
+      .red(red), 
+      .green(green), 
+      .blue(blue), 
+      .hsync(hsync), 
+      .vsync(vsync),
+      .cpu_reset_switch_n(DIG18),  
+      // LCD signals
+      .pin_cs(pin_cs), 
+      .pin_sdin(pin_sdin), 
+      .pin_sclk(pin_sclk), 
+      .pin_d_cn(pin_d_cn), 
+      .pin_resn(pin_resn), 
+      .pin_vccen(pin_vccen), 
+      .pin_pmoden(pin_pmoden),
+      .serloader_tx(serloader_tx), 
+      .serloader_rx(serloader_rx), // bootloader UART
+    .vde(vde),    // Video display enable (active area)
+    .ps2clk(ps2_clk), 
+    .ps2dat(ps2_data)
   );
 
   assign PMOD5_1 = pin_cs;

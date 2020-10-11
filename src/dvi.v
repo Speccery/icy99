@@ -58,12 +58,22 @@ module TMDS_encoder(
   output reg [9:0] TMDS = 0
 );
 
+  genvar i;
   reg  [3:0] dc_bias = 0;
 
   // compute data word
   wire [3:0] ones = VD[0] + VD[1] + VD[2] + VD[3] + VD[4] + VD[5] + VD[6] + VD[7];
   wire       XNOR = (ones>4'd4) || (ones==4'd4 && VD[0]==1'b0);
-  wire [8:0] dw   = { ~XNOR, dw[6:0] ^ VD[7:1] ^ {7{XNOR}}, VD[0] };
+
+  // Replace the following with the generator below to avoid signal loop warnings
+  // from Yosys.
+  // wire [8:0] dw   = { ~XNOR, dw[6:0] ^ VD[7:1] ^ {7{XNOR}}, VD[0] };
+
+  wire [8:0] dw;
+  assign                     dw[8] = ~XNOR;
+  for(i=1; i<=7; i++) assign dw[i] = dw[i-1] ^ VD[i] ^ XNOR;
+  assign                     dw[0] = VD[0];
+
 
   // calculate 1/0 disparity & invert as needed to minimize dc bias
   wire [3:0] dw_disp = dw[0] + dw[1] + dw[2] + dw[3] + dw[4] + dw[5] + dw[6] + dw[7] + 4'b1100;

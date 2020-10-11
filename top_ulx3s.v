@@ -49,7 +49,7 @@ module top_ulx3s
 
   // for secondary serial port we could use
   // GND, GP27 (output) and GP26 (input)
-  output  wire [26:0] gp,
+  input  wire [26:0] gp,
   output wire gp_27
 );
 
@@ -76,7 +76,12 @@ module top_ulx3s
   (
     .clk_i(clk_25mhz),
     .clk_o(clocks),
-    .locked(clk_locked)
+    .locked(clk_locked),
+
+    .phasesel(2'b00),
+    .phasedir(1'b0), 
+    .phasestep(1'b0), 
+    .phaseloadreg(1'b0)
   );
   wire pll_125mhz  = clocks[0]; // shift clock
   wire pll_25mhz   = clocks[1]; // pixel clock
@@ -343,14 +348,14 @@ module top_ulx3s
   end
 
   // Debug signals
-  assign gp[0] = addr_strobe;
-  assign gp[1] = use_memory_busy;
-  assign gp[2] = ram_sel && !RAMWE;
-  assign gp[3] = my_as;
-  assign gp[6] = memory_busy;
-  assign gp[9] = RAMWE;
-  assign gp[12] = ram_sel;
-
+  // assign gp[0] = addr_strobe;
+  // assign gp[1] = use_memory_busy;
+  // assign gp[2] = ram_sel && !RAMWE;
+  // assign gp[3] = my_as;
+  // assign gp[6] = memory_busy;
+  // assign gp[9] = RAMWE;
+  // assign gp[12] = ram_sel;
+  
   SDRAM sdram_i (
     .clk_in(clk_sdram),     // controller clock
     // interface to the SDRAM chip
@@ -432,6 +437,7 @@ module top_ulx3s
   wire vde;
 
   assign led[0] = sys_LED[3];  // stuck signal
+  assign led[3:1] = 3'b000;
   assign led[7:4] = sys_LED[3:0]; // LEDs from sys module.
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;

@@ -2,8 +2,10 @@
 # Makefile for icy99 FPGA system
 
 YOSYS = ~/.apio/packages/toolchain-yosys/bin/yosys
-NEXTPNR-ECP5 = ~/.apio/packages/toolchain-ecp5/bin/nextpnr-ecp5
+NEXTPNR_ECP5 = ~/.apio/packages/toolchain-ecp5/bin/nextpnr-ecp5
+NEXTPNR_ICE40 = ~/.apio/packages/toolchain-ice40/bin/nextpnr-ice40
 ECPPACK = ~/.apio/packages/toolchain-ecp5/bin/ecppack
+ICEPACK_ICE40 = ~/.apio/packages/toolchain-ice40/bin/icepack
 
 
 # TI-99/4A FGPA implementation for various FPGA boards.
@@ -32,13 +34,13 @@ erik9900.bin: erik9900.txt
 
 # NEXTPNR ROUTING
 next9900.json: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
-	yosys  -q  -DEXTERNAL_VRAM -p 'synth_ice40 -json next9900.json -top top_blackice2 -blif next9900.blif' $(VERILOGS) top_blackice2.v
+	$(YOSYS)  -q  -DEXTERNAL_VRAM -p 'synth_ice40 -json next9900.json -top top_blackice2 -blif next9900.blif' $(VERILOGS) top_blackice2.v
 
 next9900.asc: next9900.json 
-	nextpnr-ice40 --hx8k --asc next9900.asc --json next9900.json --package tq144:4k --pcf blackice-ii.pcf --pcf-allow-unconstrained
+	$(NEXTPNR_ICE40) --hx8k --asc next9900.asc --json next9900.json --package tq144:4k --pcf blackice-ii.pcf --pcf-allow-unconstrained
 
 next9900.bin: next9900.asc
-	icepack next9900.asc next9900.bin
+	$(ICEPACK_ICE40) next9900.asc next9900.bin
 
 
 # ECP5 FleaFPGA Ohm
@@ -47,7 +49,7 @@ flea.json: $(VERILOGS) top_flea.v src/dvi.v Makefile
 
 
 flea_ohm.bit: Makefile flea.json
-	$(NEXTPNR-ECP5) --25k --package CABGA381 --json flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg	
+	$(NEXTPNR_ECP5) --25k --package CABGA381 --json flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg	
 	$(ECPPACK)  flea_out.cfg flea_ohm.bit
 
 # ECP5 ULX3S ECP5-85 board
@@ -68,7 +70,7 @@ ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) Makefile
 
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
-	$(NEXTPNR-ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
+	$(NEXTPNR_ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
 	$(ECPPACK) --compress ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
 
 
