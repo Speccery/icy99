@@ -466,7 +466,14 @@ end
       // read from linebuffer
       if(clk25MHz == 1'b1) begin
         if(video_on == 1'b1 && reg1[6] == 1'b1) begin
-          if((VGACol <= slv_511 && blanking == 1'b0 && reg1[4] == 1'b0) || (VGACol <= slv_479 && blanking == 1'b0 && reg1[4] == 1'b1)) begin
+          // vga_line_buf_out is the output of the linebuffer. The read address is computed from VGACol.
+          // It needs one clock cycle to for the line buffer read operation. The the output is one pixel late.
+          // Therefore VGACol==0 data is ready at VGACol == 1. This also means that in normal 32 column mode,
+          // the last pixel is not at VGACol==511 but VGACol==512.
+          if(VGACol != 0 && 
+               ( (VGACol <= (slv_511+1) && blanking == 1'b0 && reg1[4] == 1'b0) 
+              || (VGACol <= (slv_479+1) && blanking == 1'b0 && reg1[4] == 1'b1) )
+               ) begin
             pixel_out_4bit = vga_line_buf_out[3:0];
           end else begin
             pixel_out_4bit = reg7[3:0];
@@ -967,7 +974,6 @@ end
   assign xram_write_rq  = 0;
   assign xram_read_rq   = 0;
   assign xram_pipeline_reads = 0;
-  wire   ram_read_ack;
   reg    [1:0] read_ack_delay = 2'b00;
   assign ram_read_ack = read_ack_delay[1];
   assign ram_write_ack  = 1;
