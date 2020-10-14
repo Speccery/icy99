@@ -351,6 +351,8 @@ end
   wire [4:0]  cell_width = columns_80 ? (reg1[4] == 1'b1 ? 6 : 8)      
                             : (reg1[4] == 1'b1 ? 12 : 16);
 
+reg drawing;  // Check simulation how drawing starts
+
   always @(posedge clk, posedge reset) begin : P1
     reg [31:0] k;
     reg [8:0] spry;
@@ -373,6 +375,7 @@ end
       reg1 <= 8'h00;
       detect_frame_end <= 1'b0;
       detect_line_end  <= 1'b0;
+      drawing <= 1'b0;
     end else begin
       // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
       // // It is high once per 4 clock cycles.
@@ -470,13 +473,15 @@ end
           // It needs one clock cycle to for the line buffer read operation. The the output is one pixel late.
           // Therefore VGACol==0 data is ready at VGACol == 1. This also means that in normal 32 column mode,
           // the last pixel is not at VGACol==511 but VGACol==512.
-          if(VGACol != 0 && 
-               ( (VGACol <= (slv_511+1) && blanking == 1'b0 && reg1[4] == 1'b0) 
-              || (VGACol <= (slv_479+1) && blanking == 1'b0 && reg1[4] == 1'b1) )
+          if(VGACol != 0 && blanking == 1'b0 &&
+               ( (VGACol <= (slv_511+1) && reg1[4] == 1'b0) 
+              || (VGACol <= (slv_479+1) && reg1[4] == 1'b1) )
                ) begin
             pixel_out_4bit = vga_line_buf_out[3:0];
+            drawing <= 1'b1;
           end else begin
             pixel_out_4bit = reg7[3:0];
+            drawing <= 1'b0;
           end
           // if((VGARow & 1) && (VGACol == slv_479 || VGACol == 0))
           //  pixel_out_4bit = 4'd6;  // Draw a red line here, to see where the heck it is on the screen.
@@ -504,7 +509,7 @@ end
         if(VGARow == (({ypos,1'b0}) + disp_start) && VGACol == slv_760) 
           blanking <= 1'b0; // Remove blanking (only needed for first finished scanline but what the heck)
 
-        if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760) begin
+        if(VGARow == (({ypos,1'b0}) + disp_start) && VGACol == slv_760) begin
           detect_line_end <= 1'b1;
         end
 
@@ -516,6 +521,7 @@ end
           blanking <= 1'b1;
           if(detect_frame_end == 1'b1) begin            
             detect_frame_end <= 1'b0;
+            detect_line_end  <= 1'b0;
             // if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00}) begin // EPEP BUG- this may miss if CPU is accessing memory
             // start rendering
             refresh_state <= process_line;

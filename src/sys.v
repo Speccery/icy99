@@ -35,7 +35,7 @@ module sys(
   output RAMCS;
   output RAMLB;
   output RAMUB;
-  output [17:0] ADR;
+  output [22:0] ADR;
   output addr_strobe;
   output [15:0] sram_pins_dout;
   input  [15:0] sram_pins_din;
@@ -451,10 +451,10 @@ tms9918 vdp(
   //----------------------------------------------------------
   // external SRAM controller setup
   //----------------------------------------------------------
-  wire [18:0] x_grom_addr = {4'b0001, grom_addr[15:1] };   // address of GROM in external memory
-  wire [18:0] x_cpu_addr  = {4'b0000, ab[15:1] };          // CPU RAM in external memory
+  wire [22:0] x_grom_addr = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
+  wire [22:0] x_cpu_addr  = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
   reg [4:0] cart_page = 5'd0;
-  wire [18:0] x_cart_addr = { 2'b01, cart_page, ab[12:1]};  // Paged cartridge area top 256K of 512K RAM
+  wire [22:0] x_cart_addr = { 6'b00_0001, cart_page, ab[12:1]};  // Paged cartridge area top 256K of 512K RAM
 
   always @(posedge clk)
   begin
@@ -470,7 +470,7 @@ tms9918 vdp(
   end
   
 
-  wire [18:0] xaddr_bus = grom_selected ? x_grom_addr : 
+  wire [22:0] xaddr_bus = grom_selected ? x_grom_addr : 
                           cartridge_cs  ? x_cart_addr :
                                           x_cpu_addr;
 

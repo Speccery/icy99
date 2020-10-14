@@ -216,7 +216,7 @@ module top_ulx3s
   wire RAMCS;
   wire RAMLB;
   wire RAMUB;
-  wire [17:0] ADR;
+  wire [22:0] ADR;
   // Need to populate memory map with internal SRAM:
   // 8K  at 00000 system ROM
   // -- 8K  at 02000 low memory expansion
@@ -231,22 +231,22 @@ module top_ulx3s
   // Since we need byte addressability we need 10 blocks. 
   // For the select signals, note that ADR has 16-bit word address, not byte address.
   // Thus ADR[14] is CPU A15.
-  wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
-  wire dsr_sel = (ADR[17:12] == 6'b000_010);    //  8K @ 04000
+  wire rom_sel = (ADR[22:12] == 11'b0000_0000_000);    //  8K @ 00000
+  wire dsr_sel = (ADR[22:12] == 11'b0000_0000_010);    //  8K @ 04000
 `ifndef PAD_IN_SDRAM  
-  wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
+  wire pad_sel = (ADR[22: 9] == 14'b0000_0000_1000_00);//  1K @ 08000 
 `endif
-  wire gro_sel = (ADR[17:15] == 3'b001);        // 64K @ 10000 (actually 56K)
+  wire gro_sel = (ADR[22:15] == 8'b0000_0001);        // 64K @ 10000 (actually 56K)
   `ifdef EXTERNAL_VRAM
-  wire vra_sel = (ADR[17:13] == 5'b010_00);     // 16K @ 20000
+  wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
   `endif  
-  wire car_sel = (ADR[17:15] == 5'b100);     	// 64K @ 40000
+  wire car_sel = (ADR[22:15] == 10'b0000_0100);     	// 64K @ 40000
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
-  wire ram_sel = (ADR[17:12] == 6'b000_001) 
-              || (ADR[17:12] == 6'b000_101)  
-              || (ADR[17:13] == 5'b000_11)
+  wire ram_sel = (ADR[22:12] == 11'b0000_0000_001) 
+              || (ADR[22:12] == 11'b0000_0000_101)  
+              || (ADR[22:13] == 10'b0000_0000_11)
 `ifdef PAD_IN_SDRAM
-              || (ADR[17: 9] == 9'b000_1000_00) //  1K @ 08000 
+              || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 
 `endif              
               
               ; 

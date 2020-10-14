@@ -24,25 +24,25 @@ def show_mode(regs):
     print("R0 {:02X} {}".format(regs[0], s0), end='')
     print("R1 {:02X} {}".format(regs[1], s1))
     m3 = regs[0] & 2
-    m2 = regs[1] & 0x10
-    m1 = regs[1] & 0x08
-    if m1 and not m2 and not m3:
-        modes="Text mode"
-    else: 
-        if (not m1 and not m2 and not m3):
-            modes="Graphics 1 mode"
-        else: 
-            if (not m1 and not m2 and m3):
-                # in grahics mode 2 only the top bit of character and color table matter.
-                modes="Graphics 2 mode"
-                addr4 = addr4 & 0x2000
-                addr3 = addr3 & 0x2000
-            else: 
-                if (not m1 and m2 and m3):
-                    modes="Multicolor mode"
-                else:
-                    modes="Non-standard video mode"
-    print("m1={} m2={} m3={}: {}".format(m1,m2,m3,modes))
+    m1 = regs[1] & 0x10
+    m2 = regs[1] & 0x08 # Text mode
+    m4 = regs[0] & 4    # 80 column mode
+    if (not m1 and not m2 and not m3):
+        modes="Graphics 1 mode"
+    elif (not m1 and not m2 and m3):
+        # in grahics mode 2 only the top bit of character and color table matter.
+        modes="Graphics 2 mode"
+        addr4 = addr4 & 0x2000
+        addr3 = addr3 & 0x2000
+    elif (not m1 and m2 and m3):
+        modes="Multicolor mode"
+    elif (m1 and not m2 and not m3 and not m4):
+        modes="40 column text mode"
+    elif (m1 and not m2 and not m3 and m4):
+        modes="80 column text mode"
+    else:
+        modes="Non-standard video mode"
+    print("m1={} m2={} m3={} m4={}: {}".format(m1,m2,m3, m4, modes))
 
 
     print("Image table at         {:04X} R2, character numbers.".format(addr2))
@@ -50,6 +50,8 @@ def show_mode(regs):
     print("Character table at     {:04X} R4, character table, i.e. fonts".format(addr4))
     print("Sprite attribute table {:04X} R5, 4 bytes per sprite".format(addr5))
     print("Sprite pattern table   {:04X} R6, 4 bytes per sprite".format(addr6))
+    print("Foreground color      {:2X} R7 high nibble".format(regs[7] >> 4))
+    print("Background color      {:2X} R7 low nibble".format(regs[7] & 0xF))
 
 def explain_regs(name, regs):
     print("-------------")

@@ -14,7 +14,7 @@ module xmemctrl(
   output reg  [15:0] SRAM_DAT_out,
   input  wire [15:0] SRAM_DAT_in,
   output wire SRAM_DAT_drive,
-  output wire [17:0] SRAM_ADR,
+  output wire [22:0] SRAM_ADR,    // 23 bit address space with word addresses -> 24 bit address space with byte addresses
   output wire addr_strobe,
   output wire SRAM_CE,
   output wire SRAM_WE,
@@ -24,7 +24,7 @@ module xmemctrl(
   input  wire use_memory_busy,
 
   // CPU address bus for external memory
-  input wire [18:0] xaddr_bus,
+  input wire [22:0] xaddr_bus,
 
   // Flash memory loading (from serial flash)
   input wire [15:0] flashDataOut,
@@ -169,14 +169,13 @@ assign addr_strobe = as_out;
         ram_cs_n <= 1'b1;
         sram_we_n <= 1'b1;
         sram_oe_n <= 1'b1;
-        // addr <= xaddr_bus;
         if(vdp_read_rq || vdp_read_pending) begin
           // SRAM addresses are 18 bits, and address 16-bit words, so 19 bits for byte accesses.
           // VDP addresses are 14 bits for byte accesses. For now set VDP RAM to 4000..7FFF in CPU RAM.
           // In word addresses this is 2000..3FFF, i.e. 000_001v_vvvv_vvvv_vvvv
           vdp_read_pending <= 1'b0;
           vdp_last_addr0 <= vdp_addr[0];
-          addr <= { 5'b01000, vdp_addr[13:1]};  // VRAM at 128K
+          addr <= { 10'b00_0000_1000, vdp_addr[13:1]};  // VRAM at 128K
           as_out <= 1'b1;
           accessor <= access_vdp;
           ram_cs_n <= 1'b0;                 // init read cycle
@@ -189,7 +188,7 @@ assign addr_strobe = as_out;
           SRAM_BE <= { vdp_addr[0], ~vdp_addr[0] };
         end else if (vdp_write_rq || vdp_write_pending) begin
           vdp_write_pending <= 1'b0;
-          addr <= { 5'b01000, vdp_addr[13:1]};  // VRAM at 128K
+          addr <= { 10'b00_0000_1000, vdp_addr[13:1]};  // VRAM at 128K
           as_out <= 1'b1;
           vdp_last_addr0 <= vdp_addr[0];        // Writes are not pipelined, but this controls byte enables
           accessor <= access_vdp;
@@ -204,7 +203,7 @@ assign addr_strobe = as_out;
           // We are loading from flash memory chip to SRAM.
           // For this ICE40HX version I am not sure if this will be used. Only support writing to the low 256K.
           // Note that addresses from flashAddrOut are byte address but LSB set to zero
-          addr <= { 1'b0, flashAddrOut[17:1]};  // 256K range from 00000
+          addr <= { 6'b00_0000, flashAddrOut[17:1]};  // 256K range from 00000
           as_out <= 1'b1;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;    // only writes drive the bus (for non-CPU writes)
@@ -214,7 +213,7 @@ assign addr_strobe = as_out;
         end 
         else if(mem_write_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
           // normal memory write by memory controller circuit
-          addr <= mem_addr[18:1]; // setup address
+          addr <= mem_addr[23:1]; // setup address
           as_out <= 1'b1;
           mem_state <= wr0;
           mem_drive_bus <= 1'b1;  // only writes drive the bus
@@ -223,7 +222,7 @@ assign addr_strobe = as_out;
           SRAM_BE <= { mem_addr[0], ~mem_addr[0] };
         end
         else if(mem_read_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
-          addr <= mem_addr[18:1];           // setup address
+          addr <= mem_addr[23:1];           // setup address
           as_out <= 1'b1;
           mem_state <= rd0;
           mem_drive_bus <= 1'b0;
