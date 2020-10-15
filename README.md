@@ -4,6 +4,11 @@ TI-99/4A FPGA implementation for the Icestorm toolchain.
 
 Partially now merged with emard's tree. Namely the ESP32 and OSD support are now included, but the ESP32 cannot yet access the memory of the TI-99/4A as I am still using my serloader component for testing.
 
+2020-10-15 SDRAM support and 80 column output
+=============================================
+* Did a whole bunch of updates and bug fixes to the VDP. Now the 40 column text mode should be bug free, and also added 80-column text mode, which is the same as with F18A, 9938 and 9958 VDPs. Tested with the TI-99/4A TurboForth.
+* On the ULX3S added support for SDRAM.  This is still minimally used, the but now the 32K memory expansion and the scratchpad memory are stored in SDRAM instead of internal block RAM.
+* Extended the address buses to 24-bits. The next step is to add memory paging to be able to benefit from the larger memory capacity.
 
 2020-07-14 A couple of changes
 ==============================
