@@ -4,7 +4,9 @@
 // This is a platform neutral implementation of the TI-99/4A.
 // It needs to be included into a toplevel file for a given FPGA platform.
 
-module sys(
+module sys
+#(parameter mem_supports_byte_writes=1) 
+(
     clk, LED, 
     tms9902_tx, tms9902_rx, 
     RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
@@ -62,19 +64,11 @@ module sys(
 
 //-------------------------------------------------------------------
 
+  reg [31:0] debug_addr;
   wire RX = tms9902_rx; 
 
   wire rd, wr;
-  wire [15:0] ab, db_out, db_in, rom_o, ram_o, xram_o;
-
-  // CHIP SELECT LOGIC
-  `define SCRATCHPAD_IN_XRAM
-  `ifdef SCRATCHPAD_IN_XRAM
-    wire nRAMCE = 1'b1;   // Keep internal RAM disabled
-  `else
-    wire nRAMCE = !(ab[15:8] == 8'H83); 
-  `endif
-
+  wire [15:0] ab, db_out, db_in, xram_o;
 
   wire cartridge_cs = ab[15:13] == 3'b011;
   // wire nROMCE = !(ab[15:13] == 3'b000);  // low 8k is ROM
@@ -84,15 +78,12 @@ module sys(
   // wire nxRAMCE = !(ab[15:13] != 3'b000 && ab[15:12] != 4'd9 && ab[15:11] != 5'b1000_1); 
   wire n_9901CE = !(ab[15:8] == 8'h00);     // TMS9901 at address zero
 
-  wire nROMCE = 1'b1; // Internal ROM disabled // !(ab[15:13] == 3'b000);  // low 8k is ROM
   // external RAM everywhere except on IO area. However, write protect low 8K (i.e. ROM)
   wire nxRAMCE = !(
     (ab[15:13] == 3'b000 && !wr) ||  // 0000..1fff    ROM read only
     ab[15:13] == 3'b001   ||      // 2000..3fff low 8k of extended 32K RAM
     (cartridge_cs && !wr) ||      // 6000..7FFF cartridge memory, read only
-`ifdef SCRATCHPAD_IN_XRAM    
     ab[15:10] == 6'b1000_00 ||  // 8000..83ff scratchpad
-`endif    
     (ab[15:8] == 8'h98 && ab[1] == 1'b0) ||           // GROM read port
     ab[15:13] == 3'b101 ||      // A000..BFFF 8K of extended 32K RAM
     ab[15:14] == 2'b11);        // C000..FFFF 16K of extended 32K RAM
@@ -155,6 +146,9 @@ module sys(
     keep_ready = 1'b1;
   if (!rd && !wr)
     keep_ready = 1'b0;
+
+  if(bootloader_read_ack)
+    debug_addr <= ADR;
  end
 
  assign cruin = !n_9901CE ? cruin_9901 : cruin_9902;
@@ -293,21 +287,19 @@ tms9918 vdp(
   .xram_read_ack(vdp_read_ack),
   .xram_pipeline_reads(vdp_pipeline_reads),
   .xram_write_rq(vdp_write_rq),
-  .xram_write_ack(vdp_write_ack)
+  .xram_write_ack(vdp_write_ack),
+  .debugA(bootloader_addr),
+  .debugB(debug_addr)
 );
 
-  RAM      ram(clk, nRAMCE, !wr, ab[12:1], db_out, ram_o);
-  ROM      rom(clk, nROMCE,      ab[12:1], rom_o);
   tms9902  aca(clk, nrts, 1'b0 /*dsr*/, ncts, /*int*/, nACACE, cruout, cruin_9902, cruclk, xout, rin, ab[5:1]);
 
   assign db_in = vdp_rd ? vdp_data_out : 
-                 nROMCE == 1'b0 ? rom_o : 
                  grom_reg_out ? { grom_o, 8'h00 } :
                  (grom_selected && grom_addr[0] == 1'b1) ? { xram_o[ 7:0], 8'h00 } :  // GROM low byte
                  (grom_selected && grom_addr[0] == 1'b0) ? { xram_o[15:8], 8'h00 } :  // GROM high byte
                  (!grom_selected && ab[15:8] == 8'h98)   ? 16'hff00 :
                  nxRAMCE == 1'b0 ? xram_o :                                           // Normal reads 
-                 nRAMCE == 1'b0 ? ram_o :
                  16'd0;
 
   assign ncts  = nrts;
@@ -364,7 +356,7 @@ tms9918 vdp(
   begin
     bootloader_write_ack2 <= 1'b0;
     bootloader_read_ack2 <= 1'b0;
-    if (bootloader_write_rq && bootloader_addr[20]==1'b1) begin
+    if (bootloader_write_rq && bootloader_addr[24]==1'b1) begin
       case (bootloader_addr[4:3])
         2'b00: begin  // Keyboard input
           case(bootloader_addr[2:0])
@@ -386,7 +378,7 @@ tms9918 vdp(
         2'b10: bootloader_write_ack2 <= 1'b1;
         2'b11: bootloader_write_ack2 <= 1'b1;
       endcase
-    end else if(bootloader_read_rq  && bootloader_addr[20]==1'b1) begin
+    end else if(bootloader_read_rq  && bootloader_addr[24]==1'b1) begin
       casez(bootloader_addr[11:0])
       // Keyboard matrix readback
       12'b0000_0000_0???: 
@@ -453,8 +445,10 @@ tms9918 vdp(
   //----------------------------------------------------------
   wire [22:0] x_grom_addr = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
   wire [22:0] x_cpu_addr  = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
-  reg [4:0] cart_page = 5'd0;
-  wire [22:0] x_cart_addr = { 6'b00_0001, cart_page, ab[12:1]};  // Paged cartridge area top 256K of 512K RAM
+  reg [7:0] cart_page = 8'd0;
+  // Paged cartridge area at address 2M. Support for 256 pages.
+  // The size is thus 256*8K = 2M megs.
+  wire [22:0] x_cart_addr = { 3'b001, cart_page, ab[12:1]};     
 
   always @(posedge clk)
   begin
@@ -513,7 +507,7 @@ tms9918 vdp(
   assign hold = bootloader_read_rq || bootloader_write_rq;  
   assign bootloader_read_ack = bootloader_read_ack1 || bootloader_read_ack2;
   assign bootloader_write_ack = bootloader_write_ack1 || bootloader_write_ack2;
-  assign bootloader_din = bootloader_addr[20] ? bootloader_readback_reg : bootloader_mem_din;
+  assign bootloader_din = bootloader_addr[24] ? bootloader_readback_reg : bootloader_mem_din;
 
   wire serloader_reset = reset; //  | ~B2; // Serloader is reset with reset and when B2 is pressed
 
@@ -528,7 +522,8 @@ tms9918 vdp(
   );
 
   // external memory controller
-  xmemctrl xmem( 
+  xmemctrl #(mem_supports_byte_writes) xmem
+  ( 
     .clock(clk), .reset(reset),
     .SRAM_DAT_out(sram_pins_dout), .SRAM_DAT_in(sram_pins_din), .SRAM_DAT_drive(sram_pins_drive),
     .SRAM_ADR(ADR),

@@ -49,7 +49,10 @@ module tms9918(
   input  wire xram_read_ack,  // high when xram_data_in is valid
   output wire xram_pipeline_reads,  // when set high, xram is held with VDP 
   output wire xram_write_rq,  // high for one clock
-  input  wire xram_write_ack
+  input  wire xram_write_ack,
+  // Debug interface display two 32 bit numbers
+  input wire [31:0] debugA,
+  input wire [31:0] debugB
 );
 
 // CPU side of VRAM and VDP
@@ -483,6 +486,26 @@ reg drawing;  // Check simulation how drawing starts
             pixel_out_4bit = reg7[3:0];
             drawing <= 1'b0;
           end
+
+/* Don't show debug stuff
+ *
+          // Show debug information.
+          if(VGARow[9:2] == 8'h40) begin
+            if(VGACol < 256) begin
+              pixel_out_4bit = debugA[31 - VGACol[7:3]] ? 4'd15 : 4'd1;
+              if(VGACol[4:0] == 5'b0_0000)
+                pixel_out_4bit = 4'd6;
+            end
+          end
+
+          if(VGARow[9:2] == 8'h48) begin
+            if(VGACol < 256) begin
+              pixel_out_4bit = debugB[31 - VGACol[7:3]] ? 4'd15 : 4'd1;
+              if(VGACol[4:0] == 5'b0_0000)
+                pixel_out_4bit = 4'd6;
+            end
+          end
+*/
           // if((VGARow & 1) && (VGACol == slv_479 || VGACol == 0))
           //  pixel_out_4bit = 4'd6;  // Draw a red line here, to see where the heck it is on the screen.
         end else begin

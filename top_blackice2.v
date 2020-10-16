@@ -69,6 +69,8 @@ module top_blackice2(
   // Serial port assignments end
   wire vde;
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
+  wire [22:0] sys_addr;
+  assign ADR = sys_addr[17:0];
   sys ti994a(
       .clk(clk), 
       .LED(LED), 
@@ -79,7 +81,7 @@ module top_blackice2(
       .RAMCS(RAMCS), 
       .RAMLB(RAMLB), 
       .RAMUB(RAMUB),
-      .ADR(ADR), 
+      .ADR(sys_addr), 
       .sram_pins_din(sram_pins_din), 
       .sram_pins_dout(sram_pins_dout),
       .sram_pins_drive(sram_pins_drive),

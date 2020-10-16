@@ -7,7 +7,11 @@
 // to drive external memory, be that SRAM or SDRAM.
 // no timescale needed
 
-module xmemctrl(
+module xmemctrl
+// If set to one, serloader interface does normal byte operations.
+// If set to zero, even addressed writes are internally latched, and written when odd byte written.
+#(parameter mem_supports_byte_writes=1) 
+(
   input wire clock,
   input wire reset,   // active high
   // SRAM signals
@@ -93,12 +97,14 @@ parameter [1:0] access_vdp=0, access_cpu=1, access_flash_ldr=2, access_mem_serlo
 reg lastFlashRamWE_n;
 reg mem_read_ack;
 reg mem_write_ack;
-reg [17:0] addr;
+reg [22:0] addr;
 reg [15:0] data_read_for_cpu;
 reg vdp_write_pending;
 reg vdp_read_pending;
 reg vdp_last_addr0; // For pipelining, it is necessary to remember the LSB of address to select correct byte of 16-bit word
 reg vdp_first_pipelined_read;
+
+reg [7:0] mem_high_byte;  // Stores the high byte.
 
   assign SRAM_ADR = addr;
 
@@ -211,17 +217,31 @@ assign addr_strobe = as_out;
           SRAM_DAT_out <= flashDataOut;
           SRAM_BE <= 2'b00;
         end 
-        else if(mem_write_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
-          // normal memory write by memory controller circuit
-          addr <= mem_addr[23:1]; // setup address
-          as_out <= 1'b1;
-          mem_state <= wr0;
-          mem_drive_bus <= 1'b1;  // only writes drive the bus
-          accessor <= access_mem_serloader;
-          SRAM_DAT_out <= { mem_data_out,mem_data_out };
-          SRAM_BE <= { mem_addr[0], ~mem_addr[0] };
+        else if(mem_write_rq == 1'b1 && mem_addr[24] == 1'b0 && cpu_holda == 1'b1) begin
+          if(mem_supports_byte_writes || mem_addr[0] == 1'b1) begin
+            // normal memory write by memory controller circuit
+            addr <= mem_addr[23:1]; // setup address
+            as_out <= 1'b1;
+            mem_state <= wr0;
+            mem_drive_bus <= 1'b1;  // only writes drive the bus
+            accessor <= access_mem_serloader;
+            if(mem_supports_byte_writes) begin
+              // Memory system supports byte ops.
+              SRAM_DAT_out <= { mem_data_out,mem_data_out };
+              SRAM_BE <= { mem_addr[0], ~mem_addr[0] };
+            end else begin
+              // Memory system requires word ops (for writes).
+              SRAM_DAT_out <= { mem_high_byte, mem_data_out };
+              SRAM_BE <= 2'b00;
+            end
+          end else begin
+            // Memory controller does not support byte writes.
+            // Latch the even bytes (high bytes, address LSB = 0)
+            mem_high_byte <= mem_data_out;
+            mem_write_ack <= 1'b1;  // Ack immediately. Hopefully serloader can take it immediately...
+          end
         end
-        else if(mem_read_rq == 1'b1 && mem_addr[20] == 1'b0 && cpu_holda == 1'b1) begin
+        else if(mem_read_rq == 1'b1 && mem_addr[24] == 1'b0 && cpu_holda == 1'b1) begin
           addr <= mem_addr[23:1];           // setup address
           as_out <= 1'b1;
           mem_state <= rd0;

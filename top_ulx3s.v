@@ -219,9 +219,9 @@ module top_ulx3s
   wire [22:0] ADR;
   // Need to populate memory map with internal SRAM:
   // 8K  at 00000 system ROM
-  // -- 8K  at 02000 low memory expansion
+  // 8K  at 02000 low memory expansion - stored in SDRAM
   // 1K  at 08000 scratch pad
-  // -- 24K at 0A000 high memory expansion
+  // 24K at 0A000 high memory expansion - stored SDRAM
   // 32K at 10000 GROM space (system+8K for module)
   // 16K at 20000 VRAM
   // 64K at 40000 cartridge RAM
@@ -240,11 +240,12 @@ module top_ulx3s
   `ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
   `endif  
-  wire car_sel = (ADR[22:15] == 10'b0000_0100);     	// 64K @ 40000
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[22:12] == 11'b0000_0000_001) 
               || (ADR[22:12] == 11'b0000_0000_101)  
               || (ADR[22:13] == 10'b0000_0000_11)
+              || (ADR[22:20] ==  3'b001)               // All cartridges mapped to 2M..4M area.
+              || (ADR[22:20] ==  3'b010)                // just testing
 `ifdef PAD_IN_SDRAM
               || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 
 `endif              
@@ -304,13 +305,6 @@ module top_ulx3s
   dualport_par #(8,13) vra_lb(pll_125mhz, vra_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], vra_out_lo);
   dualport_par #(8,13) vra_hb(pll_125mhz, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], vra_out_hi);
 `endif  
-
-  // CARTRIDGE (paged, here 2 pages total 16K)
-  wire car_we_lo = car_sel && !RAMLB && !RAMWE;
-  wire car_we_hi = car_sel && !RAMUB && !RAMWE;
-  wire [7:0] car_out_lo, car_out_hi;
-  dualport_par #(8,15) car_lb(pll_25mhz, car_we_lo, ADR[14:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[14:0], car_out_lo);
-  dualport_par #(8,15) car_hb(pll_25mhz, car_we_hi, ADR[14:0], sram_pins_dout[15:8], pll_25mhz, ADR[14:0], car_out_hi);
 
   // DSR (total 8K for Device Service Routines like HEXBUS)
   wire [15:0] dsr_out;
@@ -372,7 +366,7 @@ module top_ulx3s
     // interface to TMS9900 et al
     .din(sram_pins_dout),        // data input from cpu
     .dout(ram_expansion_out),    // data output to cpu
-    .ad({ 9'b0_0000_0000, ADR[14:0]}),       // 24 bit word address
+    .ad({ 1'b0, ADR[22:0]}),     // 24 bit word address
     .as(my_as_q),               // address strobe (active low - start memory cycle)
     .nwr(RAMWE),                // cpu/chipset requests write
     .rst(~R_btn_resetn),        // cpu reset (active high)
@@ -393,7 +387,6 @@ module top_ulx3s
 `ifdef EXTERNAL_VRAM    
     vra_sel ? { vra_out_hi, vra_out_lo } :
 `endif    
-    car_sel ? { car_out_hi, car_out_lo } :
     (gro_sel && !grom_ext_sel) ? { gro_out_hi, gro_out_lo } : // system GROM
     grom_ext_sel ? grom_ext_out :           // Cartridge GROM 32K
     ram_sel ? ram_expansion_out :
@@ -441,8 +434,9 @@ module top_ulx3s
   assign led[7:4] = sys_LED[3:0]; // LEDs from sys module.
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  sys 
-  ti994a(
+  // With ULX3S and current SDRAM controller we don't support byte writes. We could, but this is
+  // a good case to test. Hence we pass the parameter zero.
+  sys #(0) ti994a (
   	.clk(clk), 
   	.LED(sys_LED), 
     .tms9902_tx(tms9902_tx),
