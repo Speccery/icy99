@@ -1,8 +1,17 @@
 # icy99
 TI-99/4A FPGA implementation for the Icestorm toolchain.
+Primary target board currently the ULX3S FPGA board. Tested with the version 3.0.3 of the board with the ECP5 85F FPGA chip.
 
-
-Partially now merged with emard's tree. Namely the ESP32 and OSD support are now included, but the ESP32 cannot yet access the memory of the TI-99/4A as I am still using my serloader component for testing.
+2020-10-16 ULX3S Supports loading with ESP32
+=============================================
+* Updated ESP32 micropython code slightly (esp32/osd/osd.py and esp32/osd/ld_ti99_4a.py), mainly to support the 2M ROM cartridge region from 2M to 4M in physical address space.
+* Changed src/sys.v to support the ESP32 bootloader. Now there is a new parameter for synthesis, enabling the use of external memory controller instead of serloader (i.e. initializing with UART connected to US1).
+* Still work in progress. 
+    * "Don't mess with Texas" demo still does not work properly. There is at least a bug in the 5th sprite per line detection, and the demo eventually gets stuck. Also the very first part of the demo looks bogus, this might be a bug in the Verilog version of my CPU core.
+    * Thus if you try with this 512K demo cartridge, just be patient and wait for the first phase of the demo to end, it is just garbage perhaps for the first two minutes.
+* I did not test this latest build with BlackIce-II board at all.
+* Credits: ULX3S intial port by emard. DVI encoder, TMS9902 and SDRAM controller cores by pnr.
+* My own code: toplevel modules, generic system module implementing the TI-99/4A, TMS9900 CPU core, TMS9901 I/O controller core, TMS9918 Video processor core, serloader, spi-slave, TI-99/4A GROM system and the multiport memory controller xmemctrl. And of course the EP994A VHDL SoC this icy99 system is based on.
 
 2020-10-15 SDRAM support and 80 column output
 =============================================

@@ -10,11 +10,13 @@ class ld_ti99_4a:
     self.spi.init(baudrate=1000000) # 1 MHz
     self.cs=cs
     self.cs.off()
+    self.cart_rom_region = 0x200000
+    self.cart_grom_region = 0x16000
 
   # LOAD/SAVE and CPU control
 
   # read from file -> write to SPI RAM
-  def load_stream(self, filedata, addr=0, maxlen=0x10000, blocksize=1024):
+  def load_stream(self, filedata, addr=0, maxlen=0x200000, blocksize=1024):
     block = bytearray(blocksize)
     # Request load
     self.cs.on()
@@ -51,34 +53,34 @@ class ld_ti99_4a:
 
   # filename used to detect what ROM it is and where to load
   def load_rom_auto(self, filedata, filename=""):
-    addr=0x40000
+    addr=self.cart_rom_region
     tight=0
     if filename.startswith("/sd/ti99_4a/cart"):
-      addr=0x40000
+      addr=self.cart_rom_region
     if filename.startswith("/sd/ti99_4a/grom"):
-      addr=0x16000
+      addr=self.cart_grom_region
     if filename.startswith("/sd/ti99_4a/dsr"):
       addr=0x4000
     if filename.endswith("8.bin"):
-      addr=0x40000
+      addr=self.cart_rom_region
     if filename.endswith("c.bin"):
-      addr=0x40000
+      addr=self.cart_rom_region
     if filename.endswith("d.bin"):
-      addr=0x42000
+      addr=self.cart_rom_region+0x2000
     if filename.endswith("g.bin"):
-      addr=0x16000
+      addr=self.cart_grom_region
     if filename.endswith("g3.bin"):
-      addr=0x16000
+      addr=self.cart_grom_region
     if filename.endswith("g4.bin"):
-      addr=0x18000
+      addr=self.cart_grom_region+0x2000
     if filename.endswith("g5.bin"):
-      addr=0x1A000
+      addr=self.cart_grom_region+0x4000
     if filename.endswith("g6.bin"):
-      addr=0x1C000
+      addr=self.cart_grom_region+0x6000
     if filename.endswith("g7.bin"):
-      addr=0x1E000
+      addr=self.cart_grom_region+0x8000
     if filename.endswith("6k.bin"):
-      addr=0x16000
+      addr=self.cart_grom_region
       tight=1
     if tight:
       self.load_grom_tight(filedata,addr)

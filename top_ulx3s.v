@@ -34,7 +34,7 @@ module top_ulx3s
   output  [1:0] sdram_dqm,// byte select
   inout  [15:0] sdram_d,  // data bus to/from SDRAM
 
-  inout  sd_clk, sd_cmd,
+  input  sd_clk, sd_cmd,
   inout   [3:0] sd_d,
 
   input         wifi_txd,
@@ -87,8 +87,6 @@ module top_ulx3s
   wire pll_25mhz   = clocks[1]; // pixel clock
   wire clk         = clocks[1]; // CPU and TI99/4A system
   wire clk_sdram   = clocks[0]; // SDRAM core
-  // assign sdram_clk = clocks[2]; // phase shifted for the chip
-  // assign sdram_cke = 1'b1;
 
   // ===============================================================
   // Joystick for OSD control and games
@@ -119,8 +117,7 @@ module top_ulx3s
   wire [31:0] spi_ram_addr;
   wire  [7:0] spi_ram_di;
   reg   [7:0] spi_ram_do;
-  reg   [7:0] spi_ram_hi;
-
+  
   assign sd_d[0] = 1'bz;
   assign sd_d[3] = 1'bz; // FPGA pin pullup sets SD card inactive at SPI bus
 
@@ -155,14 +152,6 @@ module top_ulx3s
     end
   end
   
-  always @(posedge clk)
-  begin
-    if(spi_ram_wr && spi_ram_addr[0] == 1'b0)
-      spi_ram_hi <= spi_ram_di;
-  end
-  // for writing a 16-bit word at spi_ram_addr[0] == 1
-  wire [15:0] spi_ram_word = {spi_ram_hi, spi_ram_di};
-
   reg  [31:0] bootloader_addr;
   reg         bootloader_read_rq = 0;
   wire        bootloader_read_ack;
@@ -175,7 +164,6 @@ module top_ulx3s
     if((spi_ram_rd || spi_ram_wr) && spi_ram_addr[31:24] == 8'h00)
       bootloader_addr <= spi_ram_addr;
 
-  // FIXME: it only works if reading 2 bytes peek(addr,2), and the second byte is OK
   always @(posedge clk)
   begin
     if(bootloader_read_ack)
@@ -406,12 +394,17 @@ module top_ulx3s
   wire serloader_tx;
   wire tms9902_tx;
   
-  wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
-  assign ftdi_rxd = serloader_tx; // send to FTDI chip  
-  // wire serloader_rx = 1'b1;
-  // assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
-  // assign ftdi_rxd = wifi_txd;
-  assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
+  `define SERIAL_TO_ESP
+  `ifndef SERIAL_TO_ESP
+    // Route serial port to the serloader component.
+    wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
+    assign ftdi_rxd = serloader_tx; // send to FTDI chip  
+    assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
+  `else
+    wire serloader_rx = 1'b1;
+    assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
+    assign ftdi_rxd = wifi_txd;
+  `endif
   
   wire tms9902_rx = gp[26];   // receive from FTDI chip
   assign gp_27 = tms9902_tx;
@@ -429,14 +422,14 @@ module top_ulx3s
   wire [3:0] sys_LED;
   wire vde;
 
-  assign led[0] = sys_LED[3];  // stuck signal
-  assign led[3:1] = 3'b000;
-  assign led[7:4] = sys_LED[3:0]; // LEDs from sys module.
+  assign led[0] = irq;
+  assign led[3:1] = { sd_cmd, sd_clk, sd_d[3] & sd_d[0] }; // this should enable the pull-ups
+  assign led[7:4] = sys_LED[3:0]; // LEDs from sys module. sys_LED[3] is the stuck signal.
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   // With ULX3S and current SDRAM controller we don't support byte writes. We could, but this is
   // a good case to test. Hence we pass the parameter zero.
-  sys #(0) ti994a (
+  sys #(0,1) ti994a (
   	.clk(clk), 
   	.LED(sys_LED), 
     .tms9902_tx(tms9902_tx),
@@ -467,6 +460,14 @@ module top_ulx3s
     // bootloader UART
     .serloader_tx(serloader_tx), 
     .serloader_rx(serloader_rx),
+    // external bootloader
+    .xbootloader_addr(bootloader_addr),
+    .xbootloader_read_rq(bootloader_read_rq),
+    .xbootloader_read_ack(bootloader_read_ack),
+    .xbootloader_din(bootloader_din),
+    .xbootloader_write_rq(bootloader_write_rq),
+    .xbootloader_write_ack(bootloader_write_ack),
+    .xbootloader_dout(bootloader_dout),
     // PS/2 keyboard
     .ps2clk(ps2clk), .ps2dat(ps2dat)
   );

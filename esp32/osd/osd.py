@@ -368,7 +368,8 @@ class osd:
 
 os.mount(SDCard(slot=3),"/sd")
 
-# EP 2020-07-14 commented out the following lines.
-# ecp5.prog("/sd/ti99_4a/bitstreams/ulx3s_85f_spi_ti99_4a.bit")
-# gc.collect()
-# run=osd()
+fpga_config_file="/sd/ti99_4a/bitstreams/ti994a_ulx3s.bit"
+print("FPGA file: {}".format(fpga_config_file))
+ecp5.prog(fpga_config_file) # ulx3s_85f_spi_ti99_4a.bit")
+gc.collect()
+run=osd()

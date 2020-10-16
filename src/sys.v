@@ -5,64 +5,59 @@
 // It needs to be included into a toplevel file for a given FPGA platform.
 
 module sys
-#(parameter mem_supports_byte_writes=1) 
+#(parameter mem_supports_byte_writes=1,
+  parameter external_bl32=0) 
 (
-    clk, LED, 
-    tms9902_tx, tms9902_rx, 
-    RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
-    ADR, 
-    addr_strobe,
-    sram_pins_din, sram_pins_dout,
-    sram_pins_drive,
-    memory_busy,      // if set memory is busy, wait a cycle
-    use_memory_busy,  // if set memory_busy signal above is valid
-    red, green, blue, hsync, vsync,
-    cpu_reset_switch_n,
+    input clk, 
+    output [3:0] LED, 
+    input   tms9902_tx, 
+    output  tms9902_rx, 
+    output  RAMOE, 
+    output  RAMWE, 
+    output  RAMCS, 
+    output  RAMLB, 
+    output  RAMUB,
+    output [22:0] ADR, 
+    output addr_strobe,
+    input  [15:0] sram_pins_din, 
+    output [15:0] sram_pins_dout,
+    output sram_pins_drive,
+    input wire memory_busy,      // if set memory is busy, wait a cycle
+    input wire use_memory_busy,  // if set memory_busy signal above is valid
+    // Video output signals
+    output wire [3:0] red, 
+    output wire [3:0] green, 
+    output wire [3:0] blue, 
+    output wire       hsync, 
+    output wire       vsync,
+    // CPU Reset 
+    input wire  cpu_reset_switch_n,
     // LCD signals
-    pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden,
-    serloader_tx, serloader_rx, // Serloader UART
-    vde, // Video display enable (active area)
-    ps2clk, ps2dat
+    output wire pin_cs, 
+    output wire pin_sdin, 
+    output wire pin_sclk, 
+    output wire pin_d_cn, 
+    output wire pin_resn, 
+    output wire pin_vccen, 
+    output wire pin_pmoden,
+    // Serloader UART
+    output wire serloader_tx, 
+    input wire  serloader_rx, 
+    // ULX3S Loading by ESP32 bootloader
+    input   [31:0] xbootloader_addr,
+    input          xbootloader_read_rq,
+    output         xbootloader_read_ack,
+    output   [7:0] xbootloader_din,
+    input          xbootloader_write_rq,
+    output         xbootloader_write_ack,
+    input    [7:0] xbootloader_dout,
+    // Misc
+    output wire vde, // Video display enable (active area)
+    input ps2clk, 
+    input ps2dat
   );
 
-  input  clk;
-  output [3:0] LED;
-  input  tms9902_rx;
-  output tms9902_tx;
-  input wire ps2clk, ps2dat;
-  
-  // SRAM pins
-  output RAMOE;
-  output RAMWE;
-  output RAMCS;
-  output RAMLB;
-  output RAMUB;
-  output [22:0] ADR;
-  output addr_strobe;
-  output [15:0] sram_pins_dout;
-  input  [15:0] sram_pins_din;
-  output sram_pins_drive;
-
-  // memory busy
-  input wire memory_busy;
-  input wire use_memory_busy;
-
-  // VGA
-  output [3:0] red, green, blue;
-  output hsync, vsync;
-
-  input cpu_reset_switch_n;
-
-  // LCD
-  output pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-
-  // serloader UART
-  output serloader_tx;
-  input  serloader_rx;
-
-  output vde;
-
-//-------------------------------------------------------------------
+ //-------------------------------------------------------------------
 
   reg [31:0] debug_addr;
   wire RX = tms9902_rx; 
@@ -496,14 +491,36 @@ tms9918 vdp(
     .addr(grom_addr)
   );
 
-  // Serloader to be able to bootload this thing
+  // Serloader variables to be able to bootload this thing
   wire spi_miso, spi_rq;
+  wire [31:0] sbootloader_addr;
+  wire sbootloader_read_rq, sbootloader_write_rq;
+  wire [7:0] sbootloader_din, sbootloader_dout;
+  wire sbootloader_read_ack, sbootloader_write_ack;
+
+  // Declare the actual bootloader signals. Either xbootloader or sbootloader is assigned to these.
   wire [31:0] bootloader_addr;
   wire bootloader_read_rq, bootloader_write_rq;
-  wire [7:0] bootloader_din, bootloader_mem_din, bootloader_dout;
+  wire [7:0] bootloader_din, bootloader_dout;
   wire bootloader_read_ack, bootloader_write_ack;
+
+  // Declare and assign bootloader buses based on used bootloader
+  assign bootloader_addr     = external_bl32 ? xbootloader_addr     : sbootloader_addr;
+  assign bootloader_dout     = external_bl32 ? xbootloader_dout     : sbootloader_dout;
+  assign bootloader_read_rq  = external_bl32 ? xbootloader_read_rq  : sbootloader_read_rq;
+  assign bootloader_write_rq = external_bl32 ? xbootloader_write_rq : sbootloader_write_rq;
+  // assign the acks based on which one is actually used
+  assign xbootloader_read_ack  = external_bl32 ? bootloader_read_ack  : 1'b0;
+  assign xbootloader_write_ack = external_bl32 ? bootloader_write_ack : 1'b0;
+  assign sbootloader_read_ack  = external_bl32 ? 1'b0 : bootloader_read_ack ;
+  assign sbootloader_write_ack = external_bl32 ? 1'b0 : bootloader_write_ack ;
+  // Both fed with the same data from memory
+  assign xbootloader_din     = bootloader_din;
+  assign sbootloader_din     = bootloader_din;
+
+  // General variables. 
+  wire [7:0] bootloader_mem_din;
   wire bootloader_read_ack1, bootloader_write_ack1; // to/from xmemctrl
-  // Request bus from CPU during memcontroller accesses. In this design this really should not be a requirement.
   assign hold = bootloader_read_rq || bootloader_write_rq;  
   assign bootloader_read_ack = bootloader_read_ack1 || bootloader_read_ack2;
   assign bootloader_write_ack = bootloader_write_ack1 || bootloader_write_ack2;
@@ -515,10 +532,10 @@ tms9918 vdp(
     .clk(clk), .rst(reset), .tx(serloader_tx), .rx(serloader_rx),
     .spi_cs_n(1'b1), .spi_clk(1'b1), .spi_mosi(1'b1), .spi_miso(spi_miso),  // not used right now
     .spi_rq(spi_rq),
-    .mem_addr(bootloader_addr), // 32 bit address bus
-    .mem_data_out(bootloader_dout), .mem_data_in(bootloader_din),
-    .mem_read_rq(bootloader_read_rq), .mem_read_ack(bootloader_read_ack),
-    .mem_write_rq(bootloader_write_rq), .mem_write_ack(bootloader_write_ack)
+    .mem_addr(sbootloader_addr), // 32 bit address bus
+    .mem_data_out(sbootloader_dout), .mem_data_in(sbootloader_din),
+    .mem_read_rq(sbootloader_read_rq), .mem_read_ack(sbootloader_read_ack),
+    .mem_write_rq(sbootloader_write_rq), .mem_write_ack(sbootloader_write_ack)
   );
 
   // external memory controller
