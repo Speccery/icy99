@@ -178,6 +178,8 @@ module ps2matrix(
               if (extended) begin
                 matrix[0][4] <= action;  // FCTN
                 matrix[1][5] <= action;  // S
+
+                matrix[6][1] <= action;   // Joystick 1 left
               end
           end
           // Right arrow E0 74
@@ -185,6 +187,8 @@ module ps2matrix(
               if (extended) begin
                 matrix[0][4] <= action;  // FCTN
                 matrix[2][5] <= action;  // D
+
+                matrix[6][2] <= action;   // Joystick 1 right
               end
           end
           // Up arrow E0 75
@@ -192,6 +196,8 @@ module ps2matrix(
               if (extended) begin
                 matrix[0][4] <= action;  // FCTN
                 matrix[2][6] <= action;  // E
+
+                matrix[6][4] <= action;   // Joystick 1 up
               end
           end
           // Down arrow E0 72
@@ -199,6 +205,8 @@ module ps2matrix(
               if (extended) begin
                 matrix[0][4] <= action;  // FCTN
                 matrix[1][7] <= action;  // X
+
+                matrix[6][3] <= action;   // Joystick 1 down
               end
           end
           // Delete E0 71
@@ -253,7 +261,11 @@ module ps2matrix(
 
           // 8'h76: matrix[5][7] <= action; // ESC = BREAK
           8'h29: matrix[0][1] <= action; // SPACE
-          8'h14: matrix[0][6] <= action; // CTRL
+          8'h14: begin
+            matrix[0][6] <= action; // CTRL
+            if(extended) 
+              matrix[6][0] <= action; // Right control is joystick 1 fire
+          end
           8'h11: matrix[0][4] <= action; // L-ALT = FCTN
         endcase
       end

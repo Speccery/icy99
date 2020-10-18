@@ -448,7 +448,7 @@ tms9918 vdp(
   always @(posedge clk)
   begin
     if(cpu_reset)
-      cart_page <= 5'd0;
+      cart_page <= 8'd0;
     else begin
       if (cartridge_cs && cpu_wr_rq) begin
         // write to cartride area. Store the page value from the ADDRESS bus.
