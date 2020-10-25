@@ -58,6 +58,7 @@ initial begin
     @(posedge clk)
       ;
     mode = 0;
+  /*
     vdp_write(0, 8'b0000_0000); // write the actual data
     vdp_write(0, 8'b0111_0000); 
     vdp_write(0, 8'b1000_1000); 
@@ -74,6 +75,70 @@ initial begin
 
     mode = 0;
     write_zeros(80);  // write 80 zero bytes.
+  */
+    // Multicolor mode testing write some stuff to 1000 and to 800
+    // Write pointer already at 800, i.e. character table
+      vdp_write(0,8'hff);
+      vdp_write(0,8'h56); // EPEP 8'hff);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55); // byte 807
+      vdp_write(0,8'hff); // byte 808
+      vdp_write(0,8'hff);
+      vdp_write(0,8'h54);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'h55);
+      vdp_write(0,8'hfe);
+      vdp_write(0,8'hee);
+      vdp_write(0,8'h54); // byte 80f
+      // few more to 830
+      write_zeros(32);
+      vdp_write(0,8'hff); // 830
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'hee); // 834
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'h54); // 837 
+      // few more to 860
+      write_zeros(32+8);
+      vdp_write(0,8'hfe); // 860
+      vdp_write(0,8'hee); 
+      vdp_write(0,8'h44); 
+      vdp_write(0,8'h45); 
+      vdp_write(0,8'h45); // 864
+      vdp_write(0,8'h45); 
+      vdp_write(0,8'h45); 
+      vdp_write(0,8'h45); // 867 
+      // few more to 890
+      write_zeros(32+8);
+      vdp_write(0,8'h51); // 890
+      vdp_write(0,8'h41); 
+      vdp_write(0,8'h41); 
+      vdp_write(0,8'h51); 
+      vdp_write(0,8'h51); // 894
+      vdp_write(0,8'h51); 
+      vdp_write(0,8'h51); 
+      vdp_write(0,8'h51); // 897 
+
+    // Ok next write to name table at 1000 in this mode
+    mode = 1;
+    vdp_write(0, 8'h00);
+    vdp_write(0, 8'h40 | 8'h10);    // Setup write to 0x1000
+    @(posedge clk)
+      ;
+    mode = 0;
+    // and write a few bytes
+      vdp_write(0,8'h00);
+      vdp_write(0,8'h06);
+      vdp_write(0,8'h0c);
+      vdp_write(0,8'h12);
+
+
 
     mode = 1;
     vdp_write(0, 8'h34);
@@ -118,6 +183,8 @@ end
         @(posedge clk)
           ;
         wr = 1'b0;
+        @(posedge clk)
+          ;
         #50;
     end
   endtask
@@ -146,6 +213,7 @@ end
       vdp_write(0, 8'hF4);    vdp_write(0, 8'h87);  // Reg 7
 */    
 
+/*
       // Init as in TI Invaders
       // regs= [ 0x00, 0xE2, 0xF0, 0x0E, 0xF9, 0x86, 0xF8, 0xF1 ]
       vdp_write(0, 8'h00);    vdp_write(0, 8'h80);  // Reg 0
@@ -157,6 +225,17 @@ end
       vdp_write(0, 8'hF8);    vdp_write(0, 8'h86);  // Reg 6
       // Changed to F2 to have a different color for border than black
       vdp_write(0, 8'hF2);    vdp_write(0, 8'h87);  // Reg 7
+*/
+      // Init as Megademo multicolor rotozoomer
+      vdp_write(0, 8'h00);    vdp_write(0, 8'h80);  // Reg 0
+      vdp_write(0, 8'hEA);    vdp_write(0, 8'h81);  // Reg 1
+      vdp_write(0, 8'h04);    vdp_write(0, 8'h82);  // Reg 2
+      vdp_write(0, 8'h00);    vdp_write(0, 8'h83);  // Reg 3
+      vdp_write(0, 8'h01);    vdp_write(0, 8'h84);  // Reg 4
+      vdp_write(0, 8'h26);    vdp_write(0, 8'h85);  // Reg 5
+      vdp_write(0, 8'h03);    vdp_write(0, 8'h86);  // Reg 6
+      vdp_write(0, 8'h00);    vdp_write(0, 8'h87);  // Reg 7
+
 
     end
   endtask

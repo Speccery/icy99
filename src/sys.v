@@ -188,7 +188,7 @@ module sys
         cpu_ir_pc2
   );
 
-wire debug1, debug2;
+wire vdp_debug1, vdp_debug2;
 wire vdp_int;
 wire [2:0] vdp_red;
 wire [2:0] vdp_green;
@@ -267,8 +267,8 @@ tms9918 vdp(
   .cpu_write_cycle_ack(cpu_vdp_wr_ack),
 	.vga_vsync(vsync),
 	.vga_hsync(hsync),
-	.debug1(debug1),
-	.debug2(debug2),
+	.debug1(vdp_debug1),
+	.debug2(vdp_debug2),
 	.int_out(vdp_int),
 	.vga_red(vdp_red),
 	.vga_green(vdp_green),
@@ -287,7 +287,8 @@ tms9918 vdp(
   .debugB(debug_addr)
 );
 
-  tms9902  aca(clk, nrts, 1'b0 /*dsr*/, ncts, /*int*/, nACACE, cruout, cruin_9902, cruclk, xout, rin, ab[5:1]);
+  tms9902  aca(clk, nrts, 1'b0 /*dsr*/, ncts, /*int*/, nACACE, 
+    cruout, cruin_9902, cruclk, xout, rin, ab[5:1]);
 
   assign db_in = vdp_rd ? vdp_data_out : 
                  grom_reg_out ? { grom_o, 8'h00 } :
@@ -453,7 +454,7 @@ tms9918 vdp(
       if (cartridge_cs && cpu_wr_rq) begin
         // write to cartride area. Store the page value from the ADDRESS bus.
         // This is the TI extended Basic banking scheme.
-        cart_page <= ab[5:1];
+        cart_page <= ab[8:1];
       end
     end
   end

@@ -655,9 +655,8 @@ reg drawing;  // Check simulation how drawing starts
             // Read color data, and wait for the render shifter engine to become available.
             if(reg1[3] == 1'b1) begin       // read M2, if set we have multicolor mode
               // BUGBUG: we don't deal yet with transparency!
-              color1 <= color_data[7:4]; // multicolor mode, char_pattern determines our colors
-              color0 <= color_data[3:0];
-              char_pattern <= 8'b11110000;  // hardcoded pattern for multicolor mode
+              color1 <= char_pattern[7:4]; // multicolor mode, char_pattern determines our colors
+              color0 <= char_pattern[3:0];
             end else begin
               // In text mode, ignore VRAM data and use reg7. Otherwise (GM1,2) VRAM data.
               color1 <= reg1[4] ? reg7[7:4] : color_data[7:4];
@@ -687,7 +686,7 @@ reg drawing;  // Check simulation how drawing starts
             end
           end
           write_pixel_last : begin
-            pattern_out[15:8] <= char_pattern;
+            pattern_out[15:8] <= reg1[3] ? 8'hf0 : char_pattern;  // Multicolor mode uses fixed pattern
             gogo <= ~gogo;
             process_pixel <= setup_read_char;
             // loop back this state machine
