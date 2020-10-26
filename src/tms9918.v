@@ -174,6 +174,9 @@ reg [3:0] sprite_write_count;
 reg [5:0] active_sprites;  //https://www.msx.org/forum/semi-msx-talk/emulation/question-about-msx1-palette?page=2
 reg [7:0] color_data;
 
+reg [8:0] sprite_yy;  // Temporary variable for spritle line check
+reg [8:0] sprite_line_check;
+
 // debug counters to find out what is going on
 reg [15:0]  dbg_bytes_read_count;
 reg [15:0]  dbg_bytes_read_total;
@@ -727,7 +730,19 @@ reg drawing;  // Check simulation how drawing starts
               refresh_state <= sprite_next;
             end
             else begin
-              // the coordinate was not the magical D0 (208) so go on and count higher
+              // the coordinate was not the magical D0 (208) so go on and count higher.
+              // Also count sprites which would be rendered for this line.
+              sprite_yy = (mem_data_in[7:5] == 3'b111) ? {1'b0,mem_data_in} : {1'b1,mem_data_in};
+              sprite_line_check = ({1'b1,ypos}) - (sprite_yy) - 1;
+              if((reg1[1] == 1'b1 && sprite_line_check[8:4] == 5'b00000) || (reg1[1] == 1'b0 && sprite_line_check[8:3] == 6'b000000)) begin
+                active_sprites <= (active_sprites) + 1;
+                if(active_sprites == {2'b00,4'h4}) begin
+                  // this would be the fifth sprite
+                  sig_5th_pending <= 1'b1;
+                  stat_reg[4:0] <= sprite_counter;
+                end
+              end
+
               if(sprite_counter == 5'b11111) begin
                 // all sprites are active, go and draw them
                 refresh_state <= sprites_addr;
@@ -782,12 +797,12 @@ reg drawing;  // Check simulation how drawing starts
               sprite_name <= mem_data_in;
               vram_out_addr <= {reg5[6:0],sprite_counter,2'b11};
               refresh_state <= sprite_read_color;
-              active_sprites <= (active_sprites) + 1;
-              if(active_sprites == {2'b00,4'h4}) begin
-                // this would be the fifth sprite
-                sig_5th_pending <= 1'b1;
-                stat_reg[4:0] <= sprite_counter;
-              end
+              // active_sprites <= (active_sprites) + 1;
+              // if(active_sprites == {2'b00,4'h4}) begin
+              //   // this would be the fifth sprite
+              //   sig_5th_pending <= 1'b1;
+              //   stat_reg[4:0] <= sprite_counter;
+              // end
               ram_read_rq <= 1'b1;
             end else begin
               // sprite does not belong to this scanline. Either the offset is negative or beyound 15 ("1111")

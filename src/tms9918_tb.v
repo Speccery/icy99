@@ -15,6 +15,8 @@ wire debug1, debug2, int_out;
 wire [2:0] vga_red, vga_green;
 wire [1:0] vga_blue;
 
+reg [7:0] status;
+
 tms9918 DUT(
     .clk(clk),
     .reset(reset),
@@ -38,6 +40,8 @@ tms9918 DUT(
 always #20 clk = !clk;   
 
 reg [7:0] my_count = 0;
+
+reg [7:0] loop;
 
 initial begin
     // EP testing location of vcd file - put it to /tmp so it does not get synced by Dropbox
@@ -126,42 +130,81 @@ initial begin
       vdp_write(0,8'h51); // 897 
 
     // Ok next write to name table at 1000 in this mode
-    mode = 1;
-    vdp_write(0, 8'h00);
-    vdp_write(0, 8'h40 | 8'h10);    // Setup write to 0x1000
-    @(posedge clk)
-      ;
-    mode = 0;
+      vdp_set_write_addr(14'h1000);
+      #100
     // and write a few bytes
       vdp_write(0,8'h00);
       vdp_write(0,8'h06);
       vdp_write(0,8'h0c);
       vdp_write(0,8'h12);
 
+    // Setup sprite attribute table to test 5th sprite on the line detection
+    vdp_set_write_addr(14'h1300);
+    //               Y      X      Name   Color
+    vdp_write_sprite(8'hFE, 8'd10, 8'd00, 8'h03); // Sprite 0
+    vdp_write_sprite(8'hFE, 8'd10, 8'd00, 8'h03); // Sprite 1
+    // Sprite 2 is the stop marker
+    vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Sprite 2
+    // vdp_write_sprite(8'd16, 8'd10, 8'd00, 8'h03); // Sprite 2
+    // vdp_write_sprite(8'd16, 8'd10, 8'd00, 8'h03); // Sprite 3
+    // vdp_write_sprite(8'd20, 8'd10, 8'd00, 8'h03); // Sprite 4
+    // vdp_write_sprite(8'd50, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd50, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd50, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd50, 8'd10, 8'd00, 8'h03); // Sprite 8
+    // vdp_write_sprite(8'd50, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03); // Sprite 16
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03); // Sprite 24
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
+    // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03); // Sprite 31
 
 
-    mode = 1;
-    vdp_write(0, 8'h34);
-    vdp_write(0, 8'h40 | 8'h12);    // Setup write to 0x1234
-    mode = 0;
+
+    // Test memory operations
+    vdp_set_write_addr(14'h1234);
     vdp_write(0, 8'h5a); // write the actual data
     vdp_write(0, 8'hee);    // write second databyte
     #100
     // prepare to read back the data
-    mode = 1;
-    vdp_write(0, 8'h34);
-    vdp_write(0, 8'h00 | 8'h12);    // Setup read from 0x1234
-    mode = 0;
+    vdp_set_read_addr(14'h1234);
 
     #50 rd = 1'b1;
-    #150 $display("data read %x\n", vdp_data_out);
+    #150 $display("data read %x, expected 5A\n", vdp_data_out[15:8]);
     rd = 1'b0;
 
     #50 rd = 1'b1;
-    #150 $display("data read %x\n", vdp_data_out);
+    #150 $display("data read %x, expected EE\n", vdp_data_out[15:8]);
     rd = 1'b0;
 
-    #50
+    #1_500_000  ; // wait 1.5 ms
+
+    for(loop=0; loop<20; loop++) begin
+      // Read status register
+      mode = 1;
+      #50 rd = 1'b1;
+      #150 status = vdp_data_out[15:8];
+      $display("status=%x  %d", status, loop);
+      rd = 1'b0;
+      #50000;
+    end
     // #100000
     #20000000
 
@@ -186,6 +229,41 @@ end
         @(posedge clk)
           ;
         #50;
+    end
+  endtask
+
+  // Write a sprite definition. VDP RAM address needs to be set first.
+  task vdp_write_sprite;
+    input [7:0] ypos;
+    input [7:0] xpos;
+    input [7:0] char;
+    input [7:0] color;
+
+    begin
+      vdp_write(0, ypos);
+      vdp_write(0, xpos);
+      vdp_write(0, char);
+      vdp_write(0, color);
+    end
+  endtask
+
+  task vdp_set_write_addr;
+    input [13:0] addr;
+    begin
+      mode = 1;
+      vdp_write(0, addr[7:0]);
+      vdp_write(0, { 2'b01, addr[13:8] });    
+      mode = 0;
+    end
+  endtask
+
+  task vdp_set_read_addr;
+    input [13:0] addr;
+    begin
+      mode = 1;
+      vdp_write(0, addr[7:0]);
+      vdp_write(0, { 2'b00, addr[13:8] });    
+      mode = 0;
     end
   endtask
 
