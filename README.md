@@ -2,6 +2,14 @@
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 Primary target board currently the ULX3S FPGA board. Tested with the version 3.0.3 of the board with the ECP5 85F FPGA chip.
 
+2020-10-27 Sprite fixes etc (tested only on ULX3S)
+==================================================
+* Updated ESP32 micropython code to have a few support methods for testing
+* Added support for OSD navigation with PS/2 keyboard. F1 brings up the OSD, cursor keys navigate.
+* Megademo "Don't mess with Texas" now works (except for splitscreen demo). The part which was stuck had a problem with coincidence flag detection.
+* Fixed a lot of bugs with TMS9918 implementation, including coincidence, 5th sprite per scanline detection, etc.
+
+
 2020-10-16 ULX3S Supports loading with ESP32
 =============================================
 * Updated ESP32 micropython code slightly (esp32/osd/osd.py and esp32/osd/ld_ti99_4a.py), mainly to support the 2M ROM cartridge region from 2M to 4M in physical address space.
