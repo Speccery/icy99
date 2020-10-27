@@ -142,11 +142,13 @@ initial begin
     // COINC detection (with only 2 sprites)
     vdp_set_write_addr(14'h1300);
     //               Y      X      Name   Color
-    // vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
-    vdp_write_sprite(8'h00, 8'h00, 8'd00, 8'h03); // Sprite 0
+    vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
     vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 1
     // Sprite 2 is the stop marker
     vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Sprite 2
+
+
+    // vdp_write_sprite(8'h00, 8'h00, 8'd00, 8'h03); // Sprite 0
     // vdp_write_sprite(8'd16, 8'd10, 8'd00, 8'h03); // Sprite 2
     // vdp_write_sprite(8'd16, 8'd10, 8'd00, 8'h03); // Sprite 3
     // vdp_write_sprite(8'd20, 8'd10, 8'd00, 8'h03); // Sprite 4

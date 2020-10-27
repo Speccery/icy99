@@ -92,7 +92,6 @@ reg [7:0] vga_line_buf_in;  // write bus to linebuffer
 reg [13:0] vram_out_addr;  // vram hardware addr bus
 wire [9:0] line_buf_addra;
 wire [9:0] line_buf_addrb;
-wire [7:0] line_buf_porta_out;  // line buffer render side read port. needed for sprite collisions.
 wire [0:0] line_buf_bit8_out;
 
 wire [7:0] mem_data_in;         // Data from VRAM, either internal block RAM or external RAM
@@ -112,6 +111,7 @@ wire vga_line_buf_wr;  // write strobe
 reg [6:0] xpos;
 reg [7:0] ypos;
 reg pixel_write;
+reg sprite_presence_write;  // Written high for sprites to detect COINC
 // reg pixel_write_pending;
 reg pixel_toggler;
 parameter [4:0]
@@ -298,26 +298,26 @@ end
       wr_first_pixel <= !sprite_out; 
     end
 
+    // Choose data to be written. For sprites wr_color0 is never written.
+    vga_line_buf_in <= { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 }; 
+
     if (wr_pixel_count != 5'b00000 && !wr_setup_delay) begin    
       if (wr_pixel_toggler == 2'b10) begin
-        // Here we read sprite pixel: line_buf_bit8_out and line_buf_porta_out
+        // Here we read sprite pixel: line_buf_bit8_out is high if a sprite pixel already written here.
         if(line_buf_bit8_out[0] == 1'b1 && wr_pattern_out[15]) begin
           wr_coinc_pending <= 1'b1;
         end
-
-        // On next state we write a sprite pixel.
-        // For transparent pixels write the same pixel back (line_buf_porta_out).
-        vga_line_buf_in <= (wr_pattern_out[15] && wr_color1 != 4'h0) ? { 4'h0, wr_color1 } : line_buf_porta_out;
         wr_pixel_toggler <= (columns_80 ? 2'b01 : 2'b00);  
-        pixel_write <= 1'b1;
+        pixel_write <= wr_pattern_out[15] && wr_color1 != 4'h0;     // Enable pixel write for non-transparent sprite pixels
+        sprite_presence_write <= wr_pattern_out[15];
         line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
       end else begin
         // Write pixel, for pattern or sprites
-        pixel_write <= !wr_sprite ? 1'b1 : (wr_pixel_toggler == 2'b00);
-        vga_line_buf_in <= wr_sprite ? 
-          ((wr_pattern_out[15] && wr_color1 != 4'h0)? { 4'h0, wr_color1 } : line_buf_porta_out) :  // Sprites
-          { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 }; // Characters
-        line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
+        pixel_write <= !wr_sprite ? 
+          1'b1 :      // Characters, write all pixels
+          (wr_pixel_toggler == 2'b00 && wr_pattern_out[15] && wr_color1 != 4'h0); // Sprites
+        sprite_presence_write <= wr_pixel_toggler == 2'b00 && wr_pattern_out[15]; 
+        line_buf_bit8_in <= sprite_out & wr_pattern_out[15]; // For active sprite pixels write this bit high
 
         if(!wr_first_pixel)
           wr_render_addr <= wr_render_addr + 1;   
@@ -1002,9 +1002,9 @@ end
   // The 2nd port is continuously used for VGA update.
   // Below we create two dual port RAMS, so that we have two independent read buffers.
   // For the second RAM we use a smaller 512 9-bit wide dual port RAM, since we only use it for rendering, we do not
-  // need the banking feature needed for VGA update.
-  // bug below: line_buf_porta_out not set.
-  wire not_used_8;
+  // need the banking feature needed for VGA update. We actually use only one bit of this buffer,
+  // to detect sprite coincidence.
+    wire not_used_8;
 
   dualport_par #(.WIDTH(9), .DEPTH(10)) LINEBUFFER(
     .clk_a(clk),
@@ -1017,15 +1017,16 @@ end
     .dout_b( {not_used_8, vga_line_buf_out })
   );
 
-  dualport_par #(.WIDTH(9), .DEPTH(9)) RENDERBUFFER( // produces line_buf_porta_out
+  wire [7:0] not_user_7_0;
+  dualport_par #(.WIDTH(9), .DEPTH(9)) RENDERBUFFER( 
     .clk_a(clk),
-    .we_a(pixel_write),
+    .we_a(sprite_presence_write),
     .addr_a(line_buf_addra[8:0]),
     .din_a( {line_buf_bit8_in, vga_line_buf_in}),
     // Port B
     .clk_b(clk),
     .addr_b(line_buf_addra[8:0]),
-    .dout_b( {line_buf_bit8_out, line_buf_porta_out })
+    .dout_b( {line_buf_bit8_out, not_user_7_0 })
   );
 
 `ifdef EXTERNAL_VRAM  
