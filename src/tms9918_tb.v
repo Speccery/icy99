@@ -144,8 +144,12 @@ initial begin
     //               Y      X      Name   Color
     vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
     vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 1
-    // Sprite 2 is the stop marker
-    vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Sprite 2
+
+    // Test bleeding in from the left
+    vdp_write_sprite(8'h00, 8'd24, 8'd00, 8'h83); // Early clock bit set, sprite starts 7 pixels from left edge
+
+    // Next Sprite is the stop marker
+    vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Stop marker D0
 
 
     // vdp_write_sprite(8'h00, 8'h00, 8'd00, 8'h03); // Sprite 0

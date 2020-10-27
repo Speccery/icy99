@@ -112,6 +112,8 @@ reg [6:0] xpos;
 reg [7:0] ypos;
 reg pixel_write;
 reg sprite_presence_write;  // Written high for sprites to detect COINC
+reg [5:0] sprite_early_clocks;
+
 // reg pixel_write_pending;
 reg pixel_toggler;
 parameter [4:0]
@@ -271,6 +273,7 @@ end
   reg         wr_coinc_pending = 0;
   reg         wr_setup_delay = 1'b0;
   reg         wr_first_pixel;
+  reg [5:0]   wr_sprite_early_clocks;
 
   reg [3:0] pixel_out_4bit = 4'h0;
   reg [7:0] palettized = 8'h0;
@@ -290,6 +293,7 @@ end
       wr_pixel_toggler <= sprite_out ? 2'b10 : (columns_80 ? 2'b01 : 2'b00);  
       line_buf_bit8_in <= 1'b0; 
       wr_render_addr <= vga_line_buf_addr;
+      wr_sprite_early_clocks <= sprite_early_clocks;
       wr_coinc_pending <= 0;
       wr_go <= ~wr_go;
       wr_setup_delay <= 1'b1;
@@ -308,18 +312,19 @@ end
           wr_coinc_pending <= 1'b1;
         end
         wr_pixel_toggler <= (columns_80 ? 2'b01 : 2'b00);  
-        pixel_write <= wr_pattern_out[15] && wr_color1 != 4'h0;     // Enable pixel write for non-transparent sprite pixels
+        // Enable pixel write for non-transparent sprite pixels
+        pixel_write <= wr_pattern_out[15] && wr_color1 != 4'h0 && !(|wr_sprite_early_clocks);     
         sprite_presence_write <= wr_pattern_out[15];
         line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
       end else begin
         // Write pixel, for pattern or sprites
         pixel_write <= !wr_sprite ? 
           1'b1 :      // Characters, write all pixels
-          (wr_pixel_toggler == 2'b00 && wr_pattern_out[15] && wr_color1 != 4'h0); // Sprites
-        sprite_presence_write <= wr_pixel_toggler == 2'b00 && wr_pattern_out[15]; 
+          (wr_pixel_toggler == 2'b00 && wr_pattern_out[15] && wr_color1 != 4'h0 && !(|wr_sprite_early_clocks)); // Sprites
+        sprite_presence_write <= wr_pixel_toggler == 2'b00 && wr_pattern_out[15] && !(|wr_sprite_early_clocks); 
         line_buf_bit8_in <= sprite_out & wr_pattern_out[15]; // For active sprite pixels write this bit high
 
-        if(!wr_first_pixel)
+        if(!wr_first_pixel && !(|wr_sprite_early_clocks))
           wr_render_addr <= wr_render_addr + 1;   
         wr_first_pixel <= 1'b0;
 
@@ -329,6 +334,8 @@ end
         if (wr_pixel_toggler == 2'b01) begin
           wr_pixel_count <= wr_pixel_count - 1;
           wr_pattern_out <= { wr_pattern_out[14:0], 1'b0 };
+          if(wr_sprite_early_clocks)
+            wr_sprite_early_clocks <= wr_sprite_early_clocks - 1;
         end
         if(&wr_render_addr) begin
           // we're at the end of the scanline, stop rendering.
@@ -887,12 +894,19 @@ end
           // Note that we stick in this state for as long as we can start writing pixels.
           if(sprite_color[7] == 1'b1) begin
             // early clock bit set. Now we need to figure out our address.
+            $display("Early bit set, counter=%d", sprite_counter);
             if((sprite_x) >= 32) begin
               // just force bit 5 to zero to substract 32. This is bogus but we don't care
               vga_line_buf_addr <= {sprite_x[7:6],1'b0,sprite_x[4:0],1'b0};
+            end else begin
+              // Sprite bleeds in from the left
+              vga_line_buf_addr <= 9'd0;
+              sprite_early_clocks <= 6'd32-{ 1'b0, sprite_x[4:0] };
+              $display("Setting sprite_early_clocks %d", sprite_early_clocks);
             end
           end else begin
             vga_line_buf_addr <= {sprite_x,1'b0}; // setup address normally
+            sprite_early_clocks <= 6'd0;
           end
 
           // Start the machinery to write the sprite pattern to the scanline buffer
