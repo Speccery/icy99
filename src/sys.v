@@ -32,6 +32,7 @@ module sys
     output wire       vsync,
     // CPU Reset 
     input wire  cpu_reset_switch_n,
+  `ifdef LCD_SUPPORT
     // LCD signals
     output wire pin_cs, 
     output wire pin_sdin, 
@@ -40,6 +41,7 @@ module sys
     output wire pin_resn, 
     output wire pin_vccen, 
     output wire pin_pmoden,
+  `endif
     // Serloader UART
     output wire serloader_tx, 
     input wire  serloader_rx, 
@@ -54,7 +56,8 @@ module sys
     // Misc
     output wire vde, // Video display enable (active area)
     input ps2clk, 
-    input ps2dat
+    input ps2dat,
+    output wire f1_pressed
   );
 
  //-------------------------------------------------------------------
@@ -150,10 +153,12 @@ module sys
 
  wire [15:0] cpu_ir, cpu_ir_pc; // CPU instruction register, CPU program counter+2 at the time of the IR
  wire [15:0] cpu_ir_pc2;  // Also previous value of cpu_ir_pc
+ 
+ reg [7:0] trace_addr = 8'h00;
+ `ifdef TRACEBUFFER
  // Trace buffer to see what the heck the CPU is doing (typically before going to a grinding halt).
  // The trace buffer width is 36 bits. Top 4 bits are control (iaq, int_req, wr, rd) followed by data and finally address.
  // Data is CPU databus in for reads and databus out for writes.
- reg [7:0] trace_addr = 8'h00;
  wire trace_we = rd_now || wr;
  reg last_trace_we = 1'b0;
  wire [35:0] trace_data_in = { iaq, int_req, wr, rd, wr ? db_out : db_in, ab};
@@ -165,6 +170,10 @@ module sys
   if (last_trace_we && !trace_we)
     trace_addr <= trace_addr + 8'd1;  // At the end of trace buffer write advance address.
  end
+ `else
+ // No tracebuffer.
+ wire [35:0] trace_data_out = 36'd0;
+ `endif
 
   tms9900 cpu(    
         clk, cpu_reset,
@@ -570,6 +579,7 @@ tms9918 vdp(
     .vdp_write_rq(vdp_write_rq), .vdp_write_ack(vdp_write_ack)
     );
 
+`ifdef LCD_SUPPORT
   lcd_sys lcd_controller(clk, reset,
     pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden,
     // LCD RAM buffer memory
@@ -577,10 +587,12 @@ tms9918 vdp(
     lcd_wr_addr,
     lcd_wr_data
     );
+`endif
 
     ps2matrix kbd(.clk(clk), 
       .ps2clk(ps2clk), .ps2data(ps2dat), 
-      .line_sel(tms9901_out[4:2]), .keyline(ps2_keyline)
+      .line_sel(tms9901_out[4:2]), .keyline(ps2_keyline),
+      .f1_pressed(f1_pressed)
       );
 
 endmodule

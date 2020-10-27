@@ -51,6 +51,30 @@ class osd:
     self.cs=Pin(self.gpio_cs,Pin.OUT)
     self.cs.off()
 
+  def get_spi_result(self):
+    return self.spi_result
+
+  def get_spi_result2(self):
+    self.cs.on()
+    self.spi.write_readinto(self.spi_read_btn, self.spi_result)
+    self.cs.off()
+    return self.spi_result
+
+# A couple of shortcut functions to change directories, useful for TI-99/4A core development.
+# After running "import osd", these can be accessed with osd.run.ti_cart() for example.
+  def change_dir(self, dir):
+    os.chdir(dir)
+    print("Current directory changed to {}".format(dir))
+
+  def ti_cart(self):
+    self.change_dir("/sd/ti99_4a/cart")
+
+  def ti_grom(self):
+    self.change_dir("/sd/ti99_4a/grom")
+
+  def ti_bit(self):
+    self.change_dir("/sd/ti99_4a/bitstreams")
+
 # init file browser
   def init_fb(self):
     self.fb_topitem = 0

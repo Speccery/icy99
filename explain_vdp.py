@@ -49,7 +49,7 @@ def show_mode(regs):
     print("Color table at         {:04X} R3 (not used in text mode, multicolor mode)".format(addr3))
     print("Character table at     {:04X} R4, character table, i.e. fonts".format(addr4))
     print("Sprite attribute table {:04X} R5, 4 bytes per sprite".format(addr5))
-    print("Sprite pattern table   {:04X} R6, 4 bytes per sprite".format(addr6))
+    print("Sprite pattern table   {:04X} R6, 8 or 32 bytes per sprite".format(addr6))
     print("Foreground color      {:2X} R7 high nibble".format(regs[7] >> 4))
     print("Background color      {:2X} R7 low nibble".format(regs[7] & 0xF))
 
@@ -67,3 +67,5 @@ explain_regs("Defender", [0x00, 0xE2, 0x00, 0x0E, 0x01, 0x3E, 0x02, 0x01])
 explain_regs("TurboForth", [0x00, 0xf0, 0x00, 0x0e, 0x01, 0x06, 0x00,0xf4])
 explain_regs("Megademo part 1", [0x02, 0xE2, 0x0A, 0x9F, 0x00, 0x56, 0x03, 0x07])
 explain_regs("Megedemo multicolor", [0x00, 0xEA, 0x04, 0x00, 0x01, 0x26, 0x03, 0x00])
+explain_regs("Megademo splitscreen3", [0x00, 0xA2, 0x00, 0xC0, 0x04, 0x70, 0x05, 0x00])
+

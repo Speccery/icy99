@@ -139,10 +139,11 @@ initial begin
       vdp_write(0,8'h12);
 
     // Setup sprite attribute table to test 5th sprite on the line detection
+    // COINC detection (with only 2 sprites)
     vdp_set_write_addr(14'h1300);
     //               Y      X      Name   Color
-    vdp_write_sprite(8'hFE, 8'd10, 8'd00, 8'h03); // Sprite 0
-    vdp_write_sprite(8'hFE, 8'd10, 8'd00, 8'h03); // Sprite 1
+    vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
+    vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 1
     // Sprite 2 is the stop marker
     vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Sprite 2
     // vdp_write_sprite(8'd16, 8'd10, 8'd00, 8'h03); // Sprite 2
@@ -176,6 +177,41 @@ initial begin
     // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03);
     // vdp_write_sprite(8'd80, 8'd10, 8'd00, 8'h03); // Sprite 31
 
+    // Setup sprites, 16x16, so we need four characters.
+    // Sprite pattern table at >1800
+    vdp_set_write_addr(14'h1800);
+    vdp_write(0, 8'hFC);  // top left corner of 16x16 sprite
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80); // byte 7
+    vdp_write(0, 8'h80); // byte 8 // bottom left corner of 16x16 sprite
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'h80);
+    vdp_write(0, 8'hFC); // byte 15
+    vdp_write(0, 8'h3F); // byte 16 // top right corner of 16x16 sprite
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01); // byte 23
+    vdp_write(0, 8'h01); // byte 24 // bottom right corner of 16x16 sprite
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h01);
+    vdp_write(0, 8'h3F); // byte 31
 
 
     // Test memory operations
@@ -194,7 +230,7 @@ initial begin
     #150 $display("data read %x, expected EE\n", vdp_data_out[15:8]);
     rd = 1'b0;
 
-    #1_500_000  ; // wait 1.5 ms
+    #17_000_000  ; // wait 17 ms
 
     for(loop=0; loop<20; loop++) begin
       // Read status register

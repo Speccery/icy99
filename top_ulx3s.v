@@ -92,6 +92,8 @@ module top_ulx3s
   // Joystick for OSD control and games
   // ===============================================================
 
+  wire f1_pressed;
+
   localparam C_reset_delay_bits=24;
   reg R_btn_resetn;
   reg [C_reset_delay_bits-1:0] R_reset_delay;
@@ -140,7 +142,8 @@ module top_ulx3s
     .rd(spi_ram_rd),
     .addr(spi_ram_addr),
     .data_in(spi_ram_do),
-    .data_out(spi_ram_di)
+    .data_out(spi_ram_di),
+    .f1_pressed(f1_pressed)
   );
   // Used for interrupt to ESP32
   assign wifi_gpio0 = ~irq;
@@ -294,6 +297,7 @@ module top_ulx3s
   dualport_par #(8,13) vra_hb(pll_125mhz, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], vra_out_hi);
 `endif  
 
+/*
   // DSR (total 8K for Device Service Routines like HEXBUS)
   wire [15:0] dsr_out;
   // SYS writes, SYS reads
@@ -301,9 +305,8 @@ module top_ulx3s
   wire dsr_we_hi = dsr_sel && !RAMUB && !RAMWE;
   dualport_par #(8,12) dsr_lb(pll_25mhz, dsr_we_lo, ADR[11:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[11:0], dsr_out[ 7:0]);
   dualport_par #(8,12) dsr_hb(pll_25mhz, dsr_we_hi, ADR[11:0], sram_pins_dout[15:8], pll_25mhz, ADR[11:0], dsr_out[15:8]);
-
+*/
   wire addr_strobe;
-
 
 `ifdef USE_SDRAM
   wire ram_exp_wr = ram_sel && !RAMWE;
@@ -438,7 +441,9 @@ module top_ulx3s
   assign led[3:1] = { sd_cmd, sd_clk, sd_d[3] & sd_d[0] }; // this should enable the pull-ups
   assign led[7:4] = sys_LED[3:0]; // LEDs from sys module. sys_LED[3] is the stuck signal.
 
+`ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
+`endif
   // With ULX3S and current SDRAM controller we don't support byte writes. We could, but this is
   // a good case to test. Hence we pass the parameter zero.
   sys #(0,1) ti994a (
@@ -461,6 +466,7 @@ module top_ulx3s
     .red(red), .green(green), .blue(blue),
     .hsync(hsync), .vsync(vsync), .vde(vde), // video display enable signal
     .cpu_reset_switch_n(R_btn_resetn),  // cpu_reset_switch_n
+`ifdef LCD_SUPPORT
     // LCD signals
     .pin_cs(pin_cs),
     .pin_sdin(pin_sdin),
@@ -469,6 +475,7 @@ module top_ulx3s
     .pin_resn(pin_resn),
     .pin_vccen(pin_vccen),
     .pin_pmoden(pin_pmoden),
+`endif
     // bootloader UART
     .serloader_tx(serloader_tx), 
     .serloader_rx(serloader_rx),
@@ -481,7 +488,9 @@ module top_ulx3s
     .xbootloader_write_ack(bootloader_write_ack),
     .xbootloader_dout(bootloader_dout),
     // PS/2 keyboard
-    .ps2clk(ps2clk), .ps2dat(ps2dat)
+    .ps2clk(ps2clk), .ps2dat(ps2dat),
+    // F1 key state
+    .f1_pressed(f1_pressed)
   );
 
   wire [7:0] red_out   = { red,   4'h0 };

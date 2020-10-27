@@ -286,7 +286,7 @@ end
       //                   With 80 columns, start and stay in mode 2'b01 all the time.
       //                   Otherwise we start from state 2'b00.
       wr_pixel_toggler <= sprite_out ? 2'b10 : (columns_80 ? 2'b01 : 2'b00);  
-      line_buf_bit8_in <= sprite_out; // For sprites we write always the top bit
+      line_buf_bit8_in <= 1'b0; 
       wr_render_addr <= vga_line_buf_addr;
       wr_coinc_pending <= 0;
       wr_go <= ~wr_go;
@@ -296,21 +296,24 @@ end
     if (wr_pixel_count != 5'b00000 && !wr_setup_delay) begin    
       if (wr_pixel_toggler == 2'b10) begin
         // Here we read sprite pixel: line_buf_bit8_out and line_buf_porta_out
-        if(line_buf_bit8_out[0] == 1'b1) begin
+        if(line_buf_bit8_out[0] == 1'b1 && wr_pattern_out[15]) begin
           wr_coinc_pending <= 1'b1;
         end
 
         // On next state we write a sprite pixel.
         // For transparent pixels write the same pixel back (line_buf_porta_out).
-        vga_line_buf_in <= wr_pattern_out[15] ? { 4'h0, wr_color1 } : line_buf_porta_out;
+        vga_line_buf_in <= (wr_pattern_out[15] && wr_color1 != 4'h0) ? { 4'h0, wr_color1 } : line_buf_porta_out;
         wr_pixel_toggler <= (columns_80 ? 2'b01 : 2'b00);  
         pixel_write <= 1'b1;
+        line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
       end else begin
         // Write pixel, for pattern or sprites
         pixel_write <= !wr_sprite ? 1'b1 : (wr_pixel_toggler == 2'b00);
-        vga_line_buf_in <= wr_sprite ? (wr_pattern_out[15] ? { 4'h0, wr_color1 } : line_buf_porta_out) :
-          { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 };
-        wr_render_addr <= wr_render_addr + 1;   // Don't increment render address on the very first pixel (leftmost) of a cell
+        vga_line_buf_in <= wr_sprite ? 
+          ((wr_pattern_out[15] && wr_color1 != 4'h0)? { 4'h0, wr_color1 } : line_buf_porta_out) :  // Sprites
+          { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 }; // Characters
+        line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
+        wr_render_addr <= wr_render_addr + 1;   
         wr_pixel_toggler <= (!wr_sprite || (wr_sprite && wr_pixel_toggler == 2'b00)) ?   
           { 1'b0, (columns_80 ? 1'b1 :   ~wr_pixel_toggler[0])} :  // not a sprite or state 00, just toggle bit 0. With 80 columns stick to 2'b01.
           2'b10;                           // Sprite pixel, go to read previous contents
@@ -357,7 +360,8 @@ end
   wire [4:0]  cell_width = columns_80 ? (reg1[4] == 1'b1 ? 6 : 8)      
                             : (reg1[4] == 1'b1 ? 12 : 16);
 
-reg drawing;  // Check simulation how drawing starts
+  reg drawing;  // Check simulation how drawing starts
+  reg mask_coinc_before_next_render = 1'b0;
 
   always @(posedge clk, posedge reset) begin : P1
     reg [31:0] k;
@@ -382,6 +386,7 @@ reg drawing;  // Check simulation how drawing starts
       detect_frame_end <= 1'b0;
       detect_line_end  <= 1'b0;
       drawing <= 1'b0;
+      mask_coinc_before_next_render <= 1'b0;
     end else begin
       // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
       // // It is high once per 4 clock cycles.
@@ -528,6 +533,10 @@ reg drawing;  // Check simulation how drawing starts
         // By default read and write requests off
         ram_read_rq <= 1'b0;
         ram_write_rq <= 1'b0;
+
+        // Collect any sprite coincidents over the current scanline.
+        if (wr_coinc_pending && !mask_coinc_before_next_render) 
+          sig_coinc_pending <= 1'b1; 
 
         if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00})
           detect_frame_end <= 1'b1;
@@ -722,6 +731,7 @@ reg drawing;  // Check simulation how drawing starts
           active_sprites <= {6{1'b0}};
           // Request external memory bus and enter pipelined mode.
           ram_read_rq <= 1'b1;
+          mask_coinc_before_next_render <= 1'b0;  // Any upcoming sprite coincidents count
         end
         count_active_sprites : begin
           if(ram_read_ack == 1'b1) begin                
@@ -827,13 +837,13 @@ reg drawing;  // Check simulation how drawing starts
         end
         sprite_read_pattern0 : begin
           if(ram_read_ack == 1'b1) begin                        
-            if(sprite_color[3:0] == 4'b0000) begin
-              sprite_pixels[15:8] <= 8'h00;
-              // this sprite is transparent. Still need to "write" pixels to detect collisions
-            end
-            else begin
+            // if(sprite_color[3:0] == 4'b0000) begin
+            //   sprite_pixels[15:8] <= 8'h00;
+            //   // this sprite is transparent. Still need to "write" pixels to detect collisions
+            // end
+            // else begin
               sprite_pixels[15:8] <= mem_data_in;
-            end
+            // end
             vram_out_addr <= {reg6[2:0],sprite_name[7:2],1'b1,sprite_line[3:0]};
             refresh_state <= sprite_read_pattern1;
             ram_read_rq <= 1'b1;
@@ -841,11 +851,11 @@ reg drawing;  // Check simulation how drawing starts
         end
         sprite_read_pattern1 : begin
           if(ram_read_ack == 1'b1) begin                        
-            if(sprite_color[3:0] == 4'b0000) begin
-              sprite_pixels[7:0] <= 8'h00;
-            end else begin
+            //if(sprite_color[3:0] == 4'b0000) begin
+            //  sprite_pixels[7:0] <= 8'h00;
+            // end else begin
               sprite_pixels[7:0] <= mem_data_in;
-            end
+            // end
             sprite_write_count <= {reg1[1],3'b111}; // 8x8: "0111", 16x16: "1111"
             refresh_state <= sprite_write_pattern_setup;
           end
@@ -865,8 +875,6 @@ reg drawing;  // Check simulation how drawing starts
 
           // Start the machinery to write the sprite pattern to the scanline buffer
           if(wr_pixel_count == 0) begin
-            if (wr_coinc_pending) 
-              sig_coinc_pending <= 1'b1;  // Here previous sprite has been rendered
             refresh_state <= sprite_next;
             gogo <= ~gogo;
             color1 <= sprite_color[3:0];
@@ -881,8 +889,6 @@ reg drawing;  // Check simulation how drawing starts
           if(sprite_counter == 5'b00000 || sprite_limit >= 12) begin
             // if we were already at sprite zero we are done.
             refresh_state <= wait_line;
-            if (wr_coinc_pending) 
-              sig_coinc_pending <= 1'b1;  // Here we should make sure that all sprites have been rendered 
           end
           else begin
             // otherwise look at next sprite
@@ -916,6 +922,7 @@ reg drawing;  // Check simulation how drawing starts
             if(sig_coinc_pending == 1'b1) begin
               stat_reg[5] <= 1'b1;  // set COINCinde flag (also set for transparent sprites)
               sig_coinc_pending <= 1'b0;
+              mask_coinc_before_next_render <= 1'b1;  // Don't react to wr_coinc_pending before next time sprites start
             end
             if(sig_5th_pending == 1'b1) begin
               stat_reg[6] <= 1'b1;

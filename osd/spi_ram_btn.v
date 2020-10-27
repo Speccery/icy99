@@ -30,7 +30,9 @@ module spi_ram_btn
   output wire rd, wr,
   output wire [c_addr_bits-1:0] addr,
   input  wire [7:0] data_in,
-  output wire [7:0] data_out
+  output wire [7:0] data_out,
+  // F1 key pressed or not
+  input  wire f1_pressed
 );
 
   // IRQ controller tracks BTN state
@@ -45,7 +47,7 @@ module spi_ram_btn
       R_btn_irq <= 1'b0;
     else // BTN state is read from 0xFBxxxxxx
     begin
-      R_btn_latch <= btn;
+      R_btn_latch <= f1_pressed ? 7'h78 : btn; // F1 pressed = all directional buttons pressed
       if(R_btn != R_btn_latch && R_btn_debounce[$bits(R_btn_debounce)-1] == 1 && R_btn_irq == 0)
       begin
         R_btn_irq <= 1'b1;
