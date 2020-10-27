@@ -93,6 +93,7 @@ module top_ulx3s
   // ===============================================================
 
   wire f1_pressed;
+  wire [3:0] cursor_keys_pressed;
 
   localparam C_reset_delay_bits=24;
   reg R_btn_resetn;
@@ -143,7 +144,8 @@ module top_ulx3s
     .addr(spi_ram_addr),
     .data_in(spi_ram_do),
     .data_out(spi_ram_di),
-    .f1_pressed(f1_pressed)
+    .f1_pressed(f1_pressed),
+    .cursor_keys_pressed(cursor_keys_pressed)
   );
   // Used for interrupt to ESP32
   assign wifi_gpio0 = ~irq;
@@ -490,7 +492,8 @@ module top_ulx3s
     // PS/2 keyboard
     .ps2clk(ps2clk), .ps2dat(ps2dat),
     // F1 key state
-    .f1_pressed(f1_pressed)
+    .f1_pressed(f1_pressed),
+    .cursor_keys_pressed(cursor_keys_pressed)
   );
 
   wire [7:0] red_out   = { red,   4'h0 };

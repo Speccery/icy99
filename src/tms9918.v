@@ -107,6 +107,7 @@ reg sig_coinc_pending;
 reg sig_5th_pending;
 reg vga_bank;
 reg [8:0] vga_line_buf_addr;
+reg adv_line_buf_addr;
 wire vga_line_buf_wr;  // write strobe
 reg [6:0] xpos;
 reg [7:0] ypos;
@@ -222,7 +223,7 @@ end
                     mode == 1'b1 && addr[7:6] == 2'b00 ? {stat_reg,8'h00} : 
                     addr == 8'h40 ? {reg0,8'h00} : 
                     addr == 8'h41 ? {reg1,8'h00} : 
-                    addr == 8'h42 ? {2'b00,reg2[3:0],10'b0000000000} : 
+                    addr == 8'h42 ? {2'b00,reg2[3:0],10'b0000000000} :  
                     addr == 8'h43 ? {2'b00,reg3,6'b000000} : 
                     addr == 8'h44 ? {2'b00,reg4[2:0],11'b00000000000} : 
                     addr == 8'h45 ? {2'b00,reg5[6:0],7'b0000000} : 
@@ -269,6 +270,7 @@ end
   reg [8:0]   wr_render_addr;
   reg         wr_coinc_pending = 0;
   reg         wr_setup_delay = 1'b0;
+  reg         wr_first_pixel;
 
   reg [3:0] pixel_out_4bit = 4'h0;
   reg [7:0] palettized = 8'h0;
@@ -291,6 +293,9 @@ end
       wr_coinc_pending <= 0;
       wr_go <= ~wr_go;
       wr_setup_delay <= 1'b1;
+      // For characters, don't increment line buffer address on first pixel before write cycle.
+      // Sprites don't need this, sincethey have state 2'b10 to do the setup.
+      wr_first_pixel <= !sprite_out; 
     end
 
     if (wr_pixel_count != 5'b00000 && !wr_setup_delay) begin    
@@ -313,13 +318,22 @@ end
           ((wr_pattern_out[15] && wr_color1 != 4'h0)? { 4'h0, wr_color1 } : line_buf_porta_out) :  // Sprites
           { 4'h0, wr_pattern_out[15] ? wr_color1 : wr_color0 }; // Characters
         line_buf_bit8_in <= sprite_out ? wr_pattern_out[15] : 1'b0; // For active sprite pixels write this bit
-        wr_render_addr <= wr_render_addr + 1;   
+
+        if(!wr_first_pixel)
+          wr_render_addr <= wr_render_addr + 1;   
+        wr_first_pixel <= 1'b0;
+
         wr_pixel_toggler <= (!wr_sprite || (wr_sprite && wr_pixel_toggler == 2'b00)) ?   
           { 1'b0, (columns_80 ? 1'b1 :   ~wr_pixel_toggler[0])} :  // not a sprite or state 00, just toggle bit 0. With 80 columns stick to 2'b01.
           2'b10;                           // Sprite pixel, go to read previous contents
         if (wr_pixel_toggler == 2'b01) begin
           wr_pixel_count <= wr_pixel_count - 1;
           wr_pattern_out <= { wr_pattern_out[14:0], 1'b0 };
+        end
+        if(&wr_render_addr) begin
+          // we're at the end of the scanline, stop rendering.
+          wr_pixel_count <= 5'd0;
+          pixel_write <= 1'b0;
         end
       end 
     end else begin
@@ -565,7 +579,8 @@ end
             process_pixel <= setup_read_char;
             char_addr <= name_table_addr;
             char_addr_reload <= name_table_addr;
-            vga_line_buf_addr <= {9{1'b1}} - cell_width; ;  // init to -1, so that first add rolls over to 0
+            vga_line_buf_addr <= 9'd0; 
+            adv_line_buf_addr <= 1'b0;
             ypos <= {8{1'b0}};
             sprite_limit <= 0;
             // Debug counters
@@ -587,6 +602,12 @@ end
         end
         process_line : begin
           // here we read all the data for one scanline and write it to linebuffer.
+          if(adv_line_buf_addr) begin
+            vga_line_buf_addr <= vga_line_buf_addr + cell_width; // advance to next character cell.
+            adv_line_buf_addr <= 1'b0;
+          end
+
+
           case(process_pixel)
           setup_read_char : begin
             vram_out_addr <= char_addr;
@@ -703,7 +724,8 @@ end
             process_pixel <= setup_read_char;
             // loop back this state machine
             xpos <= xpos + 7'd1;
-            vga_line_buf_addr <= vga_line_buf_addr + cell_width; // advance to next character cell.
+            // In next clock (after gogo has read vga_line_buf_addr) advance to next char cell.
+            adv_line_buf_addr <= 1'b1;  
 
             if(  (xpos == 7'd31 && reg1[4] == 1'b0 && !columns_80)  // normal 32 characters wide
               || (xpos == 7'd39 && reg1[4] == 1'b1 && !columns_80)  // ordinary text mode, 40 chars wide
@@ -902,9 +924,8 @@ end
             // we arrived at next line boundary, process it
             vga_bank <=  ~vga_bank;
             refresh_state <= process_line;
-            // Init to -1 so that first add in "gogo" rolls over to 0. Also substract cell_width so that first
-            // add of cell width brings us column zero.
-            vga_line_buf_addr <= {9{1'b1}} - cell_width;  
+            vga_line_buf_addr <= 9'd0;
+            adv_line_buf_addr <= 1'b0;
             sprite_limit <= 0;
             // Moved to detection of first line end. blanking <= 1'b0;
             if(ypos[2:0] != 3'b111) begin

@@ -57,7 +57,8 @@ module sys
     output wire vde, // Video display enable (active area)
     input ps2clk, 
     input ps2dat,
-    output wire f1_pressed
+    output wire f1_pressed,
+    output wire [3:0] cursor_keys_pressed
   );
 
  //-------------------------------------------------------------------
@@ -592,7 +593,8 @@ tms9918 vdp(
     ps2matrix kbd(.clk(clk), 
       .ps2clk(ps2clk), .ps2data(ps2dat), 
       .line_sel(tms9901_out[4:2]), .keyline(ps2_keyline),
-      .f1_pressed(f1_pressed)
+      .f1_pressed(f1_pressed),
+      .cursor_keys_pressed(cursor_keys_pressed)
       );
 
 endmodule

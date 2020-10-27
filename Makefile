@@ -19,7 +19,7 @@ VERILOGS = src/ram2.v \
  src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v \
  src/dualport_par.v src/ps2kb.v
 
-all: erik9900.bin
+all: ti994a_ulx3s.bit
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
 	yosys  -q -DEXTERNAL_VRAM -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v

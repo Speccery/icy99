@@ -82,7 +82,7 @@ initial begin
   */
     // Multicolor mode testing write some stuff to 1000 and to 800
     // Write pointer already at 800, i.e. character table
-      vdp_write(0,8'hff);
+      vdp_write(0,8'hf6);
       vdp_write(0,8'h56); // EPEP 8'hff);
       vdp_write(0,8'h55);
       vdp_write(0,8'h55);
@@ -142,7 +142,8 @@ initial begin
     // COINC detection (with only 2 sprites)
     vdp_set_write_addr(14'h1300);
     //               Y      X      Name   Color
-    vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
+    // vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 0
+    vdp_write_sprite(8'h00, 8'h00, 8'd00, 8'h03); // Sprite 0
     vdp_write_sprite(8'hFE, 8'hFF, 8'd00, 8'h03); // Sprite 1
     // Sprite 2 is the stop marker
     vdp_write_sprite(8'hD0, 8'd10, 8'd00, 8'h03); // Sprite 2
@@ -180,12 +181,12 @@ initial begin
     // Setup sprites, 16x16, so we need four characters.
     // Sprite pattern table at >1800
     vdp_set_write_addr(14'h1800);
-    vdp_write(0, 8'hFC);  // top left corner of 16x16 sprite
+    vdp_write(0, 8'h00); // 8'hFC);  // top left corner of 16x16 sprite
+    vdp_write(0, 8'hC0);
+    vdp_write(0, 8'hE0);
     vdp_write(0, 8'h80);
-    vdp_write(0, 8'h80);
-    vdp_write(0, 8'h80);
-    vdp_write(0, 8'h80);
-    vdp_write(0, 8'h80);
+    vdp_write(0, 8'hC0);
+    vdp_write(0, 8'hC0);
     vdp_write(0, 8'h80);
     vdp_write(0, 8'h80); // byte 7
     vdp_write(0, 8'h80); // byte 8 // bottom left corner of 16x16 sprite

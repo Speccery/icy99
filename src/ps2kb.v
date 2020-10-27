@@ -72,14 +72,18 @@ module PS2KBD(
 
 endmodule
 
+///////////////////////////////////////////////////////////
 // Keyboard encoder
+///////////////////////////////////////////////////////////
 module ps2matrix(
   input wire clk,
   input wire ps2clk, ps2data,
   input wire [2:0] line_sel,
   output reg [7:0] keyline,  // 8 bits out
 
-  output wire f1_pressed      // 1=F1 is pressed
+  output wire f1_pressed,    // 1=F1 is pressed
+  // bit order matches ULX3S: MSB->LSB: right, left, down, up
+  output wire [3:0] cursor_keys_pressed 
 );
 
   wire [7:0] code;
@@ -98,6 +102,8 @@ module ps2matrix(
 
   reg f1_state = 1'b0;
   assign f1_pressed = f1_state;
+  assign cursor_keys_pressed = cursor_keys_state;
+  reg [3:0] cursor_keys_state = 4'b0000;
 
   // Debug outputs
   //
@@ -186,6 +192,8 @@ module ps2matrix(
                 matrix[1][5] <= action;  // S
 
                 matrix[6][1] <= action;   // Joystick 1 left
+
+                cursor_keys_state[2] <= !action;
               end
           end
           // Right arrow E0 74
@@ -195,6 +203,7 @@ module ps2matrix(
                 matrix[2][5] <= action;  // D
 
                 matrix[6][2] <= action;   // Joystick 1 right
+                cursor_keys_state[3] <= !action;
               end
           end
           // Up arrow E0 75
@@ -204,6 +213,7 @@ module ps2matrix(
                 matrix[2][6] <= action;  // E
 
                 matrix[6][4] <= action;   // Joystick 1 up
+                cursor_keys_state[0] <= !action;
               end
           end
           // Down arrow E0 72
@@ -213,6 +223,7 @@ module ps2matrix(
                 matrix[1][7] <= action;  // X
 
                 matrix[6][3] <= action;   // Joystick 1 down
+                cursor_keys_state[1] <= !action;
               end
           end
           // Delete E0 71
