@@ -935,6 +935,7 @@ end
           if(detect_line_end == 1'b1) begin 
             detect_line_end <= 1'b0;
             // if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760) begin  // EPEP this will miss if CPU accessing memory.
+            sprite_early_clocks <= 6'd0;
             // we arrived at next line boundary, process it
             vga_bank <=  ~vga_bank;
             refresh_state <= process_line;
