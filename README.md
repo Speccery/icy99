@@ -2,6 +2,12 @@
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 Primary target board currently the ULX3S FPGA board. Tested with the version 3.0.3 of the board with the ECP5 85F FPGA chip.
 
+2020-11-25 Audio and LCD support
+==================================================
+* Added support for 96x64 LCD (Displays only the top left corner of TI-99/4A screen)
+* Added support for audio - finally!
+* The audio DAC needs work, now it blatantly uses the top 4 bits of the audio data to drive the 4-bit DAC, and that sounds terrible, need to test delta-sigma technique with 4-bit output. Basically drive the DAC at master clock 25MHz.
+
 2020-10-27 Sprite fixes etc (tested only on ULX3S)
 ==================================================
 * Updated ESP32 micropython code to have a few support methods for testing
