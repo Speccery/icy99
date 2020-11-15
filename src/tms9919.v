@@ -40,13 +40,6 @@
 //
 // Synthesized with Xilinx ISE 14.7.
 //---------------------------------------------------------------------------------
-// Uncomment the following library declaration if using
-// arithmetic functions with Signed or Unsigned values
-// Uncomment the following library declaration if instantiating
-// any Xilinx primitives in this code.
-//library UNISIM;
-//use UNISIM.VComponents.all;
-// no timescale needed
 
 module tms9919(
 input wire clk,
@@ -56,7 +49,7 @@ input wire [7:0] data_in,
 output reg [7:0] dac_out
 );
 
-// 100MHz clock
+// 25MHz clock
 // reset active high
 // high for one clock for a write to sound chip
 // data bus in
@@ -77,7 +70,7 @@ reg [9:0] tone1_counter;
 reg [9:0] tone2_counter;
 reg [9:0] tone3_counter;
 reg [10:0] noise_counter;
-reg [31:0] master_divider;
+reg [10:0] master_divider;
 reg tone1_out;
 reg tone2_out;
 reg tone3_out;
@@ -195,13 +188,15 @@ end
           endcase
         end
       end
+
       // Ok. Now handle the actual sound generators.
       // The input freuency on the TI-99/4A is 3.58MHz which is divided by 32, this is 111875Hz.
-      // Our clock is 100MHz. As the first approximation we will divide 100MHz by 894.
-      // That gives a clock of 111857Hz which is good enough.
-      // After checking that actually yields half of the desired frequency. So let's go with 447.
+      // Our clock is 25MHz. As the first approximation we will divide 25MHz by 223 (exact 223.46).
+      // That gives a clock of 112107Hz - not sure if this is good enough.
+      // After checking that actually yields half of the desired frequency. So let's go with 112.
+      // This would give us 25e6/(2*112) = 111607 Hz. The error is 111875/111607 = 1.0024, so 0.2%.
       master_divider <= master_divider + 1;
-      if(master_divider >= 446) begin
+      if(master_divider >= 111) begin
         master_divider <= 0;
         tone1_counter <= (tone1_counter) - 1;
         // tone1_counter'length));

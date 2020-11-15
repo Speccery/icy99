@@ -57,8 +57,11 @@ module top_ulx3s
   output wire oled_mosi,
   output wire oled_dc,
   output wire oled_resn,
-  output wire oled_csn
+  output wire oled_csn,
 `endif
+  // Audio DACs (4 bits with the ULX3S)
+  output wire [3:0] audio_l,
+  output wire [3:0] audio_r
 );
 
   // Housekeeping logic for unwanted peripherals on ULX3S.
@@ -451,6 +454,9 @@ module top_ulx3s
   assign led[3:1] = { sd_cmd, sd_clk, sd_d[3] & sd_d[0] }; // this should enable the pull-ups
   assign led[7:4] = sys_LED[3:0]; // LEDs from sys module. sys_LED[3] is the stuck signal.
 
+  wire [7:0] audio;
+
+
 `ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   assign oled_clk = pin_sclk;
@@ -506,8 +512,12 @@ module top_ulx3s
     .ps2clk(ps2clk), .ps2dat(ps2dat),
     // F1 key state
     .f1_pressed(f1_pressed),
-    .cursor_keys_pressed(cursor_keys_pressed)
+    .cursor_keys_pressed(cursor_keys_pressed),
+    // audio DAC put
+    .audio(audio)
   );
+  assign audio_l = audio[7:4];
+  assign audio_r = audio[7:4];  
 
   wire [7:0] red_out   = { red,   4'h0 };
   wire [7:0] green_out = { green, 4'h0 };
@@ -594,5 +604,7 @@ module top_ulx3s
   ODDRX1F ddr0_red   (.D0(tmds[2][0]), .D1(tmds[2][1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(0));
   ODDRX1F ddr0_green (.D0(tmds[1][0]), .D1(tmds[1][1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
   ODDRX1F ddr0_blue  (.D0(tmds[0][0]), .D1(tmds[0][1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
+
+
 
 endmodule

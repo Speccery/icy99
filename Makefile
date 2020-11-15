@@ -17,7 +17,8 @@ VERILOGS = src/ram2.v \
  src/serloader.v src/serial_rx.v \
  src/serial_tx.v src/spi_slave.v src/tms9901.v \
  src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v \
- src/dualport_par.v src/ps2kb.v
+ src/dualport_par.v src/ps2kb.v \
+ src/tms9919.v
 
 all: ti994a_ulx3s.bit
 

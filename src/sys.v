@@ -58,7 +58,9 @@ module sys
     input ps2clk, 
     input ps2dat,
     output wire f1_pressed,
-    output wire [3:0] cursor_keys_pressed
+    output wire [3:0] cursor_keys_pressed,
+    // Audio
+    output [7:0] audio
   );
 
  //-------------------------------------------------------------------
@@ -596,6 +598,17 @@ tms9918 vdp(
       .f1_pressed(f1_pressed),
       .cursor_keys_pressed(cursor_keys_pressed)
       );
+
+  wire audio_wr = wr && !last_wr && ab[15:8] == 8'h84;  // trigger on rising edge of wr
+
+  tms9919 audio_generator(
+    .clk(clk),
+    .reset(reset),  // checkme
+    .we(audio_wr),
+    .data_in(db_out[15:8]),
+    .dac_out(audio)
+  );
+
 
 endmodule
 
