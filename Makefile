@@ -66,7 +66,7 @@ VERILOGS_ULX3S = \
  osd/spirw_slave_v.v 
  
 ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -DPAD_IN_SDRAM -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
+	$(YOSYS) -q -DUSE_SDRAM -DPAD_IN_SDRAM -DLCD_SUPPORT -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
 
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json

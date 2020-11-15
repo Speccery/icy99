@@ -51,6 +51,14 @@ module top_ulx3s
   // GND, GP27 (output) and GP26 (input)
   input  wire [26:0] gp, 
   output wire gp_27
+`ifdef LCD_SUPPORT
+  ,
+  output wire oled_clk,
+  output wire oled_mosi,
+  output wire oled_dc,
+  output wire oled_resn,
+  output wire oled_csn
+`endif
 );
 
   // Housekeeping logic for unwanted peripherals on ULX3S.
@@ -445,6 +453,11 @@ module top_ulx3s
 
 `ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
+  assign oled_clk = pin_sclk;
+  assign oled_mosi = pin_sdin;
+  assign oled_dc = pin_d_cn;
+  assign oled_resn = pin_resn;
+  assign oled_csn = pin_cs;
 `endif
   // With ULX3S and current SDRAM controller we don't support byte writes. We could, but this is
   // a good case to test. Hence we pass the parameter zero.
