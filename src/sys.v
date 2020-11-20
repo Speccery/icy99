@@ -232,15 +232,25 @@ reg last_hsync;
 parameter HPOS=10'd64;
 parameter VPOS=10'd24;
 
+`define INVERT
+
 always @(posedge clk) begin
   last_hsync <= hsync;
   if (vsync == 1'b0) begin
+    `ifdef INVERT
+    lcd_wr_addr <= 96*63+95; // Start of last line in frame buffer when inverting
+    `else 
     lcd_wr_addr <= 13'd0;
+    `endif
     xpos <= 10'd0;
     ypos <= 10'd0;
   end if (hsync == 1'b1 && last_hsync == 1'b0) begin
     ypos <= ypos + 8'd1;
     xpos <= 10'd0;
+    // `ifdef INVERT
+    // if(ypos[0] == 1'b0 && ypos >= VPOS)
+    //   lcd_wr_addr <= lcd_wr_addr - 13'd192; // Substract two line lenghts to get to start of next
+    // `endif
   end else begin
     xpos <= xpos + 1;
     if (xpos >= HPOS && xpos < (HPOS+2*10'd96) 
@@ -251,8 +261,13 @@ always @(posedge clk) begin
     end else begin
       lcd_ram_wr <= 1'b0;
     end 
-    if (lcd_ram_wr)
+    if (lcd_ram_wr) begin
+    `ifdef INVERT
+      lcd_wr_addr <= lcd_wr_addr - 13'd1;
+    `else
       lcd_wr_addr <= lcd_wr_addr + 13'd1;
+    `endif
+    end
   end
 end
 
