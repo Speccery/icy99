@@ -60,9 +60,30 @@ module sys
     output wire f1_pressed,
     output wire [3:0] cursor_keys_pressed,
     // Audio
-    output [7:0] audio
+    output [7:0] audio,
+
+    // TIPI signals
+    output wire tipi_led0,
+    // Raspberry PI interface for TIPI
+    input wire  tipi_r_clk,   // input from Raspi, GPIO_6, SPI clock
+    input wire  tipi_r_rt,    // input from Raspi, GPIO_13
+    input wire  tipi_r_le,    // input from Raspi, GPIO_19
+    output wire tipi_r_reset, // output to  Raspi, GPIO_26
+    input wire  tipi_r_dout,  // input from Raspi, GPIO_16, SPI DATA from Raspi
+    output wire tipi_r_din,   // output to  Raspi, GPIO_20, SPI data to Raspi
+    input wire  tipi_r_dc     // input from Raspi, GPIO_21
   );
 
+ //-------------------------------------------------------------------
+   // TIPI interface
+  wire tipi_db_dir;
+  wire tipi_db_en;
+  wire [1:0] tipi_page;
+  wire tipi_dsr_en;
+  wire tipi_memen = ~(rd | wr); // active low
+  wire [7:0] tipi_dout; // Note that for TIPI these are reversed
+  wire cruin_tipi;
+  wire tipi_ioreg_en;   // active low
  //-------------------------------------------------------------------
 
   reg [31:0] debug_addr;
@@ -83,6 +104,7 @@ module sys
   wire nxRAMCE = !(
     (ab[15:13] == 3'b000 && !wr) ||  // 0000..1fff    ROM read only
     ab[15:13] == 3'b001   ||      // 2000..3fff low 8k of extended 32K RAM
+    tipi_dsr_en == 1'b0   ||      // 4000..5FF8 TIPI DSR read
     (cartridge_cs && !wr) ||      // 6000..7FFF cartridge memory, read only
     ab[15:10] == 6'b1000_00 ||  // 8000..83ff scratchpad
     (ab[15:8] == 8'h98 && ab[1] == 1'b0) ||           // GROM read port
@@ -152,7 +174,8 @@ module sys
     debug_addr <= ADR;
  end
 
- assign cruin = !n_9901CE ? cruin_9901 : cruin_9902;
+ assign cruin = !n_9901CE ? cruin_9901 : 
+          (!nACACE ? cruin_9902 : cruin_tipi);
 
  wire [15:0] cpu_ir, cpu_ir_pc; // CPU instruction register, CPU program counter+2 at the time of the IR
  wire [15:0] cpu_ir_pc2;  // Also previous value of cpu_ir_pc
@@ -322,6 +345,7 @@ tms9918 vdp(
                  (grom_selected && grom_addr[0] == 1'b1) ? { xram_o[ 7:0], 8'h00 } :  // GROM low byte
                  (grom_selected && grom_addr[0] == 1'b0) ? { xram_o[15:8], 8'h00 } :  // GROM high byte
                  (!grom_selected && ab[15:8] == 8'h98)   ? 16'hff00 :
+                 (!tipi_ioreg_en) ? { 8'h00, tipi_dout } :
                  nxRAMCE == 1'b0 ? xram_o :                                           // Normal reads 
                  16'd0;
 
@@ -466,13 +490,14 @@ tms9918 vdp(
   //----------------------------------------------------------
   // external SRAM controller setup
   //----------------------------------------------------------
-  wire [22:0] x_grom_addr = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
-  wire [22:0] x_cpu_addr  = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
+  wire [22:0] x_grom_addr     = { 8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
+  wire [22:0] x_cpu_addr      = { 8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
+  wire [22:0] x_tipi_dsr_addr = {10'b0000_0010_00, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM
   reg [7:0] cart_page = 8'd0;
   // Paged cartridge area at address 2M. Support for 256 pages.
   // The size is thus 256*8K = 2M megs.
   wire [22:0] x_cart_addr = { 3'b001, cart_page, ab[12:1]};     
-
+  
   always @(posedge clk)
   begin
     if(cpu_reset)
@@ -489,6 +514,7 @@ tms9918 vdp(
 
   wire [22:0] xaddr_bus = grom_selected ? x_grom_addr : 
                           cartridge_cs  ? x_cart_addr :
+                          !tipi_dsr_en  ? x_tipi_dsr_addr : 
                                           x_cpu_addr;
 
   // The code below does not seem to synthesize properly with yosys
@@ -624,6 +650,45 @@ tms9918 vdp(
     .dac_out(audio)
   );
 
+
+  // Signals going to Raspi
+
+  tipi_module tipi(
+		.led0(tipi_led0), // output
+		
+		.crub(4'h1),  // The base address of TIPI (address is >1X00, X given here)
+		
+    // outputs from TIPI to enable DSR ROM and select it's page
+		// .db_dir(tipi_db_dir), // these are outputs - the db_dir is not relevant with FPGA
+		.db_en(tipi_db_en),   // tipi pulls this low when accessing it
+		.dsr_b0(tipi_page[0]),
+		.dsr_b1(tipi_page[1]),
+		.dsr_en(tipi_dsr_en),
+
+    .ioreg_en(tipi_ioreg_en),  // Low when accessing memory mapped regs of TIPI
+		
+    // Signals for raspberry PI
+		.r_clk(tipi_r_clk),
+		.r_cd(tipi_r_dc),     // 0 = Data or 1 = Control byte selection
+		.r_dout(tipi_r_dout),
+		.r_le(tipi_r_le),
+		.r_rt(tipi_r_rt),     // R|T 0 = RPi or 1 = TI originating data 
+		.r_din(tipi_r_din),
+		.r_reset(tipi_r_reset),
+
+    // TMS9900 signals
+		.ti_cruclk(cruclk),
+		.ti_dbin(rd),
+		.ti_memen(tipi_memen),
+		.ti_we(~wr),
+		.ti_ph3(clk),
+		.ti_cruin(cruin_tipi),
+		// .ti_extint(tipi_extint),
+		
+		.ti_a(ab[15:0]), // ab[0:15]),
+		.ti_din(db_out[7:0]), // [0:7]),
+    .ti_dout(tipi_dout[7:0]), // [0:7])    
+  );
 
 endmodule
 

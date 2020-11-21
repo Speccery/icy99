@@ -20,6 +20,14 @@ VERILOGS = src/ram2.v \
  src/dualport_par.v src/ps2kb.v \
  src/tms9919.v
 
+TIPI_VERILOGS = \
+	tipi/crubits.v \
+	tipi/shift_pload_sout.v \
+	tipi/tipi_module.v \
+	tipi/mux2_8bit.v \
+	tipi/shift_sin_pout.v \
+	tipi/tristate_8bit.v 
+
 all: ti994a_ulx3s.bit
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
@@ -66,9 +74,10 @@ VERILOGS_ULX3S = \
  osd/spi_ram_btn.v \
  osd/spirw_slave_v.v 
  
-ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -DPAD_IN_SDRAM -DLCD_SUPPORT -p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" $(VERILOGS_ULX3S) rom16.v $(VERILOGS)
-
+ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
+	$(YOSYS) -q -DUSE_SDRAM -DPAD_IN_SDRAM -DLCD_SUPPORT \
+		-p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" \
+		$(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)
 
 ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
 	$(NEXTPNR_ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	

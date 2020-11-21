@@ -452,10 +452,20 @@ module top_ulx3s
 
   assign led[0] = irq;
   assign led[3:1] = { sd_cmd, sd_clk, sd_d[3] & sd_d[0] }; // this should enable the pull-ups
-  assign led[7:4] = sys_LED[3:0]; // LEDs from sys module. sys_LED[3] is the stuck signal.
+  assign led[4] = tipi_led0;
+  assign led[7:5] = sys_LED[3:1]; // LEDs from sys module. sys_LED[3] is the stuck signal.
 
   wire [7:0] audio;
 
+  // Signals for Raspi interface
+  wire tipi_r_clk= 1'b0;    // input from Raspi, GPIO_6, SPI clock
+  wire tipi_r_rt = 1'b0;    // input from Raspi, GPIO_13
+  wire tipi_r_le = 1'b0;    // input from Raspi, GPIO_19
+  wire tipi_r_reset;        // output to  Raspi, GPIO_26
+  wire tipi_r_dout =1'b0;   // input from Raspi, GPIO_16, SPI DATA from Raspi
+  wire tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
+  wire tipi_r_dc   =1'b0;   // input from Raspi, GPIO_21
+  wire tipi_led0;
 
 `ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
@@ -514,7 +524,18 @@ module top_ulx3s
     .f1_pressed(f1_pressed),
     .cursor_keys_pressed(cursor_keys_pressed),
     // audio DAC put
-    .audio(audio)
+    .audio(audio),
+
+    .tipi_led0(tipi_led0),
+    // Raspberry PI interface for TIPI
+    .tipi_r_clk(tipi_r_clk),    
+    .tipi_r_rt(tipi_r_rt),      // input from Raspi, GPIO_13
+    .tipi_r_le(tipi_r_le),      // input from Raspi, GPIO_19
+    .tipi_r_reset(tipi_r_reset),// output to  Raspi, GPIO_26
+    .tipi_r_dout(tipi_r_dout),  // input from Raspi, GPIO_16, SPI DATA from Raspi
+    .tipi_r_din(tipi_r_din),    // output to  Raspi, GPIO_20, SPI data to Raspi
+    .tipi_r_dc(tipi_r_dc)       // input from Raspi, GPIO_21
+
   );
   assign audio_l = audio[7:4];
   assign audio_r = audio[7:4];  

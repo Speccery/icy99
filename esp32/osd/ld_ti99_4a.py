@@ -12,6 +12,7 @@ class ld_ti99_4a:
     self.cs.off()
     self.cart_rom_region = 0x200000
     self.cart_grom_region = 0x16000
+    self.cart_tipi_region = 0x20000
 
   # LOAD/SAVE and CPU control
 
@@ -60,7 +61,7 @@ class ld_ti99_4a:
     if filename.startswith("/sd/ti99_4a/grom"):
       addr=self.cart_grom_region
     if filename.startswith("/sd/ti99_4a/dsr"):
-      addr=0x4000
+      addr=self.cart_tipi_region   # DSR routines to drive TIPI
     if filename.endswith("8.bin"):
       addr=self.cart_rom_region
     if filename.endswith("c.bin"):
