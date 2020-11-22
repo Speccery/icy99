@@ -12,7 +12,7 @@ class ld_ti99_4a:
     self.cs.off()
     self.cart_rom_region = 0x200000
     self.cart_grom_region = 0x16000
-    self.cart_tipi_region = 0x20000
+    self.cart_tipi_region = 0x30000
 
   # LOAD/SAVE and CPU control
 
@@ -87,6 +87,7 @@ class ld_ti99_4a:
       self.load_grom_tight(filedata,addr)
     else:
       self.load_stream(filedata,addr)
+      print("Loaded {} at {}".format(filename, hex(addr)))
     self.reset_on()
     self.reset_off()
 

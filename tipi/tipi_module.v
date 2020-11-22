@@ -25,9 +25,10 @@
 `include "tristate_8bit.v"
 `include "mux2_8bit.v"
 module tipi_module(
+		input clk,		// out synchronous clock
 		output led0,
 		
-		input[0:3] crub,
+		input[0:3] crub,	// CRU base
 		
 		output db_dir,
 		output db_en,
@@ -35,6 +36,7 @@ module tipi_module(
 		output dsr_b1,
 		output dsr_en,		// Zero when accessing TIPI DSR ROM
 		output ioreg_en,	// Zero when accessing TIPI registers (read or write)
+		output tipi_enabled, // When high TIPI is enabled (i.e. CRU bit is set)
 		
 		input r_clk,
 		// 0 = Data or 1 = Control byte selection
@@ -46,12 +48,12 @@ module tipi_module(
 		output r_din,
 		output r_reset,
 
-		input ti_cruclk,
-		input ti_dbin,
-		input ti_memen,
-		input ti_we,
-		input ti_ph3,
+		input  ti_cruclk,
+		input  ti_dbin,
+		input  ti_memen,
+		input  ti_we,
 		output ti_cruin,
+		input  ti_cruout,
 		// output ti_extint,
 		
 		input[0:15] ti_a,
@@ -63,12 +65,19 @@ module tipi_module(
 // assign ti_extint = 1'bz; // try to avoid triggering this interrupt ( temporarily an input )
 
 // Process CRU bits
-wire ti_cruout = ti_a[15];
 wire [0:3]cru_state;
-wire cru_regout;
-crubits cru(~crub, ti_cruclk, ti_memen, ti_ph3, ti_a[0:14], ti_cruout, cru_regout, cru_state);
+crubits cru(
+	.cru_base(crub), 
+	.ti_cru_clk(ti_cruclk), 
+	.ti_memen(ti_memen), 
+	.clk(clk), 
+	.addr(ti_a[0:14]), 
+	.ti_cru_out(ti_cruout), 
+	.ti_cru_in(ti_cruin),
+	.bits(cru_state));
 wire cru_dev_en = cru_state[0];
-assign ti_cruin = cru_regout;
+assign tipi_enabled = cru_dev_en;
+
 assign r_reset = ~cru_state[1];
 // For a 32k 27C256 chip, these control bank switching.
 assign dsr_b0 = cru_state[2];

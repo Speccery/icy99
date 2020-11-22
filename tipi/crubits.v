@@ -9,8 +9,8 @@ module crubits(
     input ti_cru_clk,
 	 // TI mem enable (when high, not a memory operation
 	 input ti_memen,
-	 // TI phase 3 clock for cru input to cpu
-	 input ti_ph3,
+	 // FPGA synchronous clock
+	 input clk,
     // cru_address
     input [0:14]addr,
     // input
@@ -22,31 +22,24 @@ module crubits(
 );
 
 reg [0:3] bits_q;
+reg last_cruclk;
 
-always @(negedge ti_cru_clk) begin
-  if ((addr[0:3] == 4'b0001) && (addr[4:7] == cru_base)) begin 
+always @(posedge clk) begin
+
+  if (!last_cruclk && ti_cru_clk && (addr[0:3] == 4'b0001) && (addr[4:7] == cru_base)) begin 
     if (addr[8:14] == 7'h00) bits_q[0] <= ti_cru_out;
     else if (addr[8:14] == 7'h01) bits_q[1] <= ti_cru_out;
     else if (addr[8:14] == 7'h02) bits_q[2] <= ti_cru_out;
     else if (addr[8:14] == 7'h03) bits_q[3] <= ti_cru_out;
   end
+  last_cruclk <= ti_cru_clk;
 end
 
 assign bits = bits_q;
 
-reg dataout;
-
-always @(negedge ti_ph3) begin
-  if (ti_memen && (addr[0:3] == 4'b0001) && (addr[4:7] == cru_base)) begin
-    if (addr[8:14] == 7'h00) dataout <= bits_q[0];
-    else if (addr[8:14] == 7'h01) dataout <= bits_q[1];
-    else if (addr[8:14] == 7'h02) dataout <= bits_q[2];
-    else if (addr[8:14] == 7'h03) dataout <= bits_q[3];
-  end
-  else dataout <= 1'bz;
-end
-
-assign ti_cru_in = dataout;
+// Here we just show the relevant bit. The higher level logic uses it when relevant.
+// There is no way of knowing when CRU bits are read by the CPU, so reading cannot cause state changes.
+assign ti_cru_in = bits_q[ addr[13:14] ];
 
 endmodule
 

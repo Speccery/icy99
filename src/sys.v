@@ -74,6 +74,10 @@ module sys
     input wire  tipi_r_dc     // input from Raspi, GPIO_21
   );
 
+ 
+  wire rd, wr;
+  wire [15:0] ab, db_out, db_in, xram_o;
+
  //-------------------------------------------------------------------
    // TIPI interface
   wire tipi_db_dir;
@@ -84,13 +88,11 @@ module sys
   wire [7:0] tipi_dout; // Note that for TIPI these are reversed
   wire cruin_tipi;
   wire tipi_ioreg_en;   // active low
+  wire tipi_enabled;    // CRU 1100 is high
  //-------------------------------------------------------------------
 
   reg [31:0] debug_addr;
   wire RX = tms9902_rx; 
-
-  wire rd, wr;
-  wire [15:0] ab, db_out, db_in, xram_o;
 
   wire cartridge_cs = ab[15:13] == 3'b011;
   // wire nROMCE = !(ab[15:13] == 3'b000);  // low 8k is ROM
@@ -99,15 +101,20 @@ module sys
   // Map external RAM everywhere except 0000..1FFF and 8800..9FFF
   // wire nxRAMCE = !(ab[15:13] != 3'b000 && ab[15:12] != 4'd9 && ab[15:11] != 5'b1000_1); 
   wire n_9901CE = !(ab[15:8] == 8'h00);     // TMS9901 at address zero
+  wire tipi_cs = (ab[15:13] == 3'b010) && tipi_enabled;
+  wire mem_window_cs = ab[15:8] == 8'h85;
+
+  reg [15:0] mem_window_reg;
 
   // external RAM everywhere except on IO area. However, write protect low 8K (i.e. ROM)
   wire nxRAMCE = !(
     (ab[15:13] == 3'b000 && !wr) ||  // 0000..1fff    ROM read only
-    ab[15:13] == 3'b001   ||      // 2000..3fff low 8k of extended 32K RAM
-    tipi_dsr_en == 1'b0   ||      // 4000..5FF8 TIPI DSR read
-    (cartridge_cs && !wr) ||      // 6000..7FFF cartridge memory, read only
+    ab[15:13] == 3'b001   ||    // 2000..3fff low 8k of extended 32K RAM
+    tipi_cs   ||                // 4000..5FF8 TIPI DSR read
+    (cartridge_cs && !wr) ||    // 6000..7FFF cartridge memory, read only
     ab[15:10] == 6'b1000_00 ||  // 8000..83ff scratchpad
     (ab[15:8] == 8'h98 && ab[1] == 1'b0) ||           // GROM read port
+    mem_window_cs      ||       // 8500..85FF paged memory window
     ab[15:13] == 3'b101 ||      // A000..BFFF 8K of extended 32K RAM
     ab[15:14] == 2'b11);        // C000..FFFF 16K of extended 32K RAM
 
@@ -346,6 +353,7 @@ tms9918 vdp(
                  (grom_selected && grom_addr[0] == 1'b0) ? { xram_o[15:8], 8'h00 } :  // GROM high byte
                  (!grom_selected && ab[15:8] == 8'h98)   ? 16'hff00 :
                  (!tipi_ioreg_en) ? { 8'h00, tipi_dout } :
+                 (ab[15:8] == 8'h86) ? mem_window_reg :
                  nxRAMCE == 1'b0 ? xram_o :                                           // Normal reads 
                  16'd0;
 
@@ -490,9 +498,10 @@ tms9918 vdp(
   //----------------------------------------------------------
   // external SRAM controller setup
   //----------------------------------------------------------
-  wire [22:0] x_grom_addr     = { 8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
-  wire [22:0] x_cpu_addr      = { 8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
-  wire [22:0] x_tipi_dsr_addr = {10'b0000_0010_00, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM
+  wire [22:0] x_grom_addr     = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
+  wire [22:0] x_cpu_addr      = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
+  wire [22:0] x_tipi_dsr_addr = {9'b0000_0011_0, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM at 30000
+  wire [22:0] x_window_addr   = {mem_window_reg, ab[7:1] };         // A window to all memory, 256 bytes at 8500
   reg [7:0] cart_page = 8'd0;
   // Paged cartridge area at address 2M. Support for 256 pages.
   // The size is thus 256*8K = 2M megs.
@@ -500,13 +509,17 @@ tms9918 vdp(
   
   always @(posedge clk)
   begin
-    if(cpu_reset)
+    if(cpu_reset) begin
       cart_page <= 8'd0;
-    else begin
+      mem_window_reg <= 16'd0;
+    end else begin
       if (cartridge_cs && cpu_wr_rq) begin
         // write to cartride area. Store the page value from the ADDRESS bus.
         // This is the TI extended Basic banking scheme.
         cart_page <= ab[8:1];
+      end
+      if(ab[15:8] == 8'h86 && cpu_wr_rq) begin
+        mem_window_reg <= db_out;
       end
     end
   end
@@ -514,7 +527,8 @@ tms9918 vdp(
 
   wire [22:0] xaddr_bus = grom_selected ? x_grom_addr : 
                           cartridge_cs  ? x_cart_addr :
-                          !tipi_dsr_en  ? x_tipi_dsr_addr : 
+                          tipi_cs       ? x_tipi_dsr_addr : 
+                          mem_window_cs ? x_window_addr :
                                           x_cpu_addr;
 
   // The code below does not seem to synthesize properly with yosys
@@ -654,6 +668,7 @@ tms9918 vdp(
   // Signals going to Raspi
 
   tipi_module tipi(
+		.clk(clk),
 		.led0(tipi_led0), // output
 		
 		.crub(4'h1),  // The base address of TIPI (address is >1X00, X given here)
@@ -666,6 +681,7 @@ tms9918 vdp(
 		.dsr_en(tipi_dsr_en),
 
     .ioreg_en(tipi_ioreg_en),  // Low when accessing memory mapped regs of TIPI
+    .tipi_enabled(tipi_enabled),
 		
     // Signals for raspberry PI
 		.r_clk(tipi_r_clk),
@@ -681,8 +697,8 @@ tms9918 vdp(
 		.ti_dbin(rd),
 		.ti_memen(tipi_memen),
 		.ti_we(~wr),
-		.ti_ph3(clk),
 		.ti_cruin(cruin_tipi),
+    .ti_cruout(cruout),
 		// .ti_extint(tipi_extint),
 		
 		.ti_a(ab[15:0]), // ab[0:15]),

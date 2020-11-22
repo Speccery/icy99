@@ -245,11 +245,12 @@ module top_ulx3s
   wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
   `endif  
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
-  wire ram_sel = (ADR[22:12] == 11'b0000_0000_001) 
-              || (ADR[22:12] == 11'b0000_0000_101)  
-              || (ADR[22:13] == 10'b0000_0000_11)
-              || (ADR[22:20] ==  3'b001)               // All cartridges mapped to 2M..4M area.
-              || (ADR[22:20] ==  3'b010)                // just testing
+  wire ram_sel = (ADR[22:12] == 11'b0000_0000_001)    // 2000..3FFF 
+              || (ADR[22:12] == 11'b0000_0000_101)    // A000..BFFF
+              || (ADR[22:13] == 10'b0000_0000_11)     // C000..FFFF
+              || (ADR[22:15] ==  8'b0000_0011)        // 30000..3FFFF DSR TIPI ROM (32K actually used)
+              || (ADR[22:20] ==  3'b001)              // All cartridges mapped to 2M..4M area.
+              || (ADR[22:20] ==  3'b010)              // just testing
 `ifdef PAD_IN_SDRAM
               || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 
 `endif              
