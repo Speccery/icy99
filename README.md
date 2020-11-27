@@ -2,7 +2,25 @@
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 Primary target board currently the ULX3S FPGA board. Tested with the version 3.0.3 of the board with the ECP5 85F FPGA chip.
 
-2020-11-25 Audio and LCD support
+2020-11-27 TIPI support added 
+=============================
+* Added support for the TIPI system (TI - Raspberry PI interface)
+* Through TIPI disk support is provided
+* The DSR routine tipi.bin must be loaded using ESP32. The ESP32 code now recognizes that entried in the directory /sd/ti99_4a/dsr are DSR routines and are loaded to the DSR area. The area currently only supports the TIPI.
+
+The pin mapping currently between ULX3S and TIPI is (refer to top_ulx3s.v):
+
+|TIPI    | ULX3S | comment |
+|--------|-------|---------|
+|GPIO_6  | GP20 | |
+|GPIO_13 | GP21 | |
+|GPIO_19 | GP22 | |
+|GPIO_16 | GP23 | |
+|GPIO_21 | GP24 | |
+|GPIO_20 | GP26 | (output from ULX3S, DIN) |
+|GPIO_26 | GP25 | (output from ULX3S, RESET) |
+
+2020-11-20 Audio and LCD support
 ==================================================
 * Added support for 96x64 LCD (Displays only the top left corner of TI-99/4A screen)
 * Added support for audio - finally!
