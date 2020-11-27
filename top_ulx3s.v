@@ -49,7 +49,9 @@ module top_ulx3s
 
   // for secondary serial port we could use
   // GND, GP27 (output) and GP26 (input)
-  input  wire [26:0] gp, 
+  input  wire [24:0] gp, 
+  output wire gp_25,
+  output wire gp_26, 
   output wire gp_27
 `ifdef LCD_SUPPORT
   ,
@@ -459,14 +461,17 @@ module top_ulx3s
   wire [7:0] audio;
 
   // Signals for Raspi interface
-  wire tipi_r_clk= 1'b0;    // input from Raspi, GPIO_6, SPI clock
-  wire tipi_r_rt = 1'b0;    // input from Raspi, GPIO_13
-  wire tipi_r_le = 1'b0;    // input from Raspi, GPIO_19
-  wire tipi_r_reset;        // output to  Raspi, GPIO_26
-  wire tipi_r_dout =1'b0;   // input from Raspi, GPIO_16, SPI DATA from Raspi
+  wire tipi_r_clk= gp[20];    // input from Raspi, GPIO_6, SPI clock
+  wire tipi_r_rt = gp[21];    // input from Raspi, GPIO_13
+  wire tipi_r_le = gp[22];    // input from Raspi, GPIO_19
+  wire tipi_r_dout = gp[23];   // input from Raspi, GPIO_16, SPI DATA from Raspi
+  wire tipi_r_dc   = gp[24];   // input from Raspi, GPIO_21
   wire tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
-  wire tipi_r_dc   =1'b0;   // input from Raspi, GPIO_21
-  wire tipi_led0;
+  wire tipi_r_reset;        // output to  Raspi, GPIO_26
+  // Assign signals to output pins
+  assign gp_25 = tipi_r_reset;        // output to  Raspi, GPIO_26
+  assign gp_26 = tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
+  wire tipi_led0;           // TIPI status LED (DSR enabled)
 
 `ifdef LCD_SUPPORT
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;

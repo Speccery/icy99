@@ -1,11 +1,19 @@
 # Erik Piehl (C) 2020
 # Makefile for icy99 FPGA system
 
+ifdef APIO
 YOSYS = ~/.apio/packages/toolchain-yosys/bin/yosys
 NEXTPNR_ECP5 = ~/.apio/packages/toolchain-ecp5/bin/nextpnr-ecp5
 NEXTPNR_ICE40 = ~/.apio/packages/toolchain-ice40/bin/nextpnr-ice40
 ECPPACK = ~/.apio/packages/toolchain-ecp5/bin/ecppack
 ICEPACK_ICE40 = ~/.apio/packages/toolchain-ice40/bin/icepack
+else
+YOSYS = yosys
+NEXTPNR_ECP5 = nextpnr-ecp5
+NEXTPNR_ICE40 = nextpnr-ice40
+ECPPACK = ecppack
+ICEPACK_ICE40 = icepack
+endif
 
 
 # TI-99/4A FGPA implementation for various FPGA boards.

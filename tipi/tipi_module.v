@@ -109,14 +109,28 @@ wire td_addr = ti_a == 16'h5fff;
 assign ioreg_en = !(cru_dev_en && (rc_addr || rd_addr || tc_addr || td_addr)); // Accessing TIPI memory mapped registers
 
 // TD Latch
-wire tipi_td_le = (cru_dev_en && ~ti_we && ~ti_memen && td_addr);
-wire [0:7]rpi_td;
-latch_8bit td(tipi_td_le, ti_din, rpi_td);
+// wire tipi_td_le = (cru_dev_en && ~ti_we && ~ti_memen && td_addr);
+// wire [0:7]rpi_td;
+// latch_8bit td(tipi_td_le, ti_din, rpi_td);
 
 // TC Latch
-wire tipi_tc_le = (cru_dev_en && ~ti_we && ~ti_memen && tc_addr);
-wire [0:7]rpi_tc;
-latch_8bit tc(tipi_tc_le, ti_din, rpi_tc);
+// wire tipi_tc_le = (cru_dev_en && ~ti_we && ~ti_memen && tc_addr);
+// wire [0:7]rpi_tc;
+// latch_8bit tc(tipi_tc_le, ti_din, rpi_tc);
+
+reg [0:7] rpi_td;
+reg [0:7] rpi_tc;
+
+always @(posedge clk)
+begin
+	if (cru_dev_en && ~ti_we && ~ti_memen) begin
+		if( tc_addr)
+			rpi_tc <= ti_din;
+		if (td_addr)
+			rpi_td <= ti_din;
+	end
+end
+
 
 // TD Shift output
 wire td_out;
