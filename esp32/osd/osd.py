@@ -214,7 +214,7 @@ class osd:
         gc.collect()
         self.enable[0]=0
         self.osd_enable(0)
-      if filename.startswith("/sd/ti99_4a/") and filename.endswith(".bin"):
+      if filename.startswith("/sd/ti99_4a/") and filename.lower().endswith(".bin"):
         import ld_ti99_4a
         s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
         s.load_rom_auto(open(filename,"rb"),filename)

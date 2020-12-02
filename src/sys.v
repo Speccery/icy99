@@ -90,10 +90,21 @@ module sys
   wire tipi_ioreg_en;   // active low
   wire tipi_enabled;    // CRU 1100 is high
  //-------------------------------------------------------------------
+ // Signals for SAMS (1MB memory expansion)
+ wire [11:0] sams_dout;
+ reg  sams_mapen; // SAMS mapping enabled
+ wire sams_we;    // Write strobe for SAMS registers
+ wire sams_rd;    // Read strobe for SAMS registers
+ wire [11:0] sams_addr_out; // Translated address out from SAMS
+ reg  sams_enabled; // SAMS enabled when CRU 1E00 is high (regs appear at 4000)
+ //-------------------------------------------------------------------
 
   reg [31:0] debug_addr;
   wire RX = tms9902_rx; 
 
+ //-------------------------------------------------------------------
+ // Chip select generation
+ //-------------------------------------------------------------------
   wire cartridge_cs = ab[15:13] == 3'b011;
   // wire nROMCE = !(ab[15:13] == 3'b000);  // low 8k is ROM
   wire nACACE = !(ab[15:8] == 8'h01);       // UART at CRU 0100
@@ -101,8 +112,11 @@ module sys
   // Map external RAM everywhere except 0000..1FFF and 8800..9FFF
   // wire nxRAMCE = !(ab[15:13] != 3'b000 && ab[15:12] != 4'd9 && ab[15:11] != 5'b1000_1); 
   wire n_9901CE = !(ab[15:8] == 8'h00);     // TMS9901 at address zero
-  wire tipi_cs = (ab[15:13] == 3'b010) && tipi_enabled;
+  wire tipi_cs = (ab[15:13] == 3'b010) && tipi_enabled; // TIPI chip select in memory space
+  wire sams_cs = (ab[15:13] == 3'b010) && sams_enabled; // SAMS chip select in memory space
+  wire sams_cru_cs = ab[15:8] == 8'h1E; // SAMS chip select in CRU space
   wire mem_window_cs = ab[15:8] == 8'h85;
+ //-------------------------------------------------------------------
 
   reg [15:0] mem_window_reg;
 
@@ -118,6 +132,11 @@ module sys
     ab[15:13] == 3'b101 ||      // A000..BFFF 8K of extended 32K RAM
     ab[15:14] == 2'b11);        // C000..FFFF 16K of extended 32K RAM
 
+  wire sams_area_cs = // SAMS area overrides the above. 32K RAM expansion must also be mapped to SAMS region.
+    ab[15:13] == 3'b001 ||      // 2000..3fff low 8k of extended 32K RAM
+    ab[15:13] == 3'b101 ||      // A000..BFFF 8K of extended 32K RAM
+    ab[15:14] == 2'b11;         // C000..FFFF 16K of extended 32K RAM
+
   // GROM control signals
   wire grom_wr = (wr && !last_wr && ab[15:8] == 8'h9c);
   wire grom_rd = (rd && ab[15:8] == 8'h98);
@@ -126,6 +145,7 @@ module sys
   wire grom_selected; // Data read from GROM i.e. RAM
   wire [19:0] grom_addr;
   
+  // CRU signals etc
   wire cruin, cruout, cruclk, xout, rin;
   wire cruin_9901, cruin_9902;
   wire nrts, ncts;
@@ -181,8 +201,10 @@ module sys
     debug_addr <= ADR;
  end
 
- assign cruin = !n_9901CE ? cruin_9901 : 
-          (!nACACE ? cruin_9902 : cruin_tipi);
+ assign cruin = 
+          !n_9901CE ? cruin_9901 : 
+          !nACACE ? cruin_9902 : 
+          cruin_tipi;
 
  wire [15:0] cpu_ir, cpu_ir_pc; // CPU instruction register, CPU program counter+2 at the time of the IR
  wire [15:0] cpu_ir_pc2;  // Also previous value of cpu_ir_pc
@@ -354,6 +376,7 @@ tms9918 vdp(
                  (!grom_selected && ab[15:8] == 8'h98)   ? 16'hff00 :
                  (!tipi_ioreg_en) ? { 8'h00, tipi_dout } :
                  (ab[15:8] == 8'h86) ? mem_window_reg :
+                 sams_rd ? { sams_dout[7:0], sams_dout[7:0] } :
                  nxRAMCE == 1'b0 ? xram_o :                                           // Normal reads 
                  16'd0;
 
@@ -498,14 +521,15 @@ tms9918 vdp(
   //----------------------------------------------------------
   // external SRAM controller setup
   //----------------------------------------------------------
+  reg [7:0] cart_page = 8'd0;
+  // Paged cartridge area at address 2M. Support for 256 pages.
+  // The size is thus 256*8K = 2M megs.
+  wire [22:0] x_cart_addr     = {3'b001, cart_page, ab[12:1]};     
   wire [22:0] x_grom_addr     = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
   wire [22:0] x_cpu_addr      = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
   wire [22:0] x_tipi_dsr_addr = {9'b0000_0011_0, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM at 30000
   wire [22:0] x_window_addr   = {mem_window_reg, ab[7:1] };         // A window to all memory, 256 bytes at 8500
-  reg [7:0] cart_page = 8'd0;
-  // Paged cartridge area at address 2M. Support for 256 pages.
-  // The size is thus 256*8K = 2M megs.
-  wire [22:0] x_cart_addr = { 3'b001, cart_page, ab[12:1]};     
+  wire [22:0] x_sams_addr     = {4'b0001, sams_addr_out[7:0], ab[11:1] }; // SAMS memory at 1 Megabyte
   
   always @(posedge clk)
   begin
@@ -529,6 +553,7 @@ tms9918 vdp(
                           cartridge_cs  ? x_cart_addr :
                           tipi_cs       ? x_tipi_dsr_addr : 
                           mem_window_cs ? x_window_addr :
+                          sams_area_cs  ? x_sams_addr :
                                           x_cpu_addr;
 
   // The code below does not seem to synthesize properly with yosys
@@ -704,6 +729,42 @@ tms9918 vdp(
 		.ti_a(ab[15:0]), // ab[0:15]),
 		.ti_din(db_out[7:0]), // [0:7]),
     .ti_dout(tipi_dout[7:0]), // [0:7])    
+  );
+
+  // SAMS memory paging unit.
+  // CRU interface. Two bits can be written.
+  // 1E00 - sams_enabled (registers appear in memory space)
+  // 1E02 - sams_mapen (memory translation i.e. mapping i.e. paging is on)
+  reg last_cruclk;
+  always @(posedge clk)
+  begin
+    last_cruclk <= cruclk;
+    if (cpu_reset) begin
+      sams_enabled <= 1'b0;
+      sams_mapen <= 1'b0;
+    end else if(!last_cruclk && cruclk && sams_cru_cs) begin
+      // Write to SAMS CRU space
+      if(ab[7:1] == 7'b0000_000)
+        sams_enabled <= cruout;
+      else if(ab[7:1] == 7'b0000_001)
+        sams_mapen <= cruout;
+    end
+  end
+
+  assign sams_we = wr && !last_wr && sams_cs;
+  assign sams_rd = rd && sams_cs;
+
+  pager612 sams(
+    .clk(clk),
+    .abus_high(ab[15:12]),
+    .abus_low(ab[4:1]),
+    .dbus_in({ 4'h0, db_out[15:8] }),
+    .dbus_out(sams_dout),
+    .mapen(sams_mapen),
+    .write_enable(sams_we),
+    .page_reg_read(sams_rd),
+    .translated_addr(sams_addr_out),
+    .access_regs(sams_cs)
   );
 
 endmodule

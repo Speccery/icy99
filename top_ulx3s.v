@@ -252,6 +252,7 @@ module top_ulx3s
               || (ADR[22:13] == 10'b0000_0000_11)     // C000..FFFF
               || (ADR[22:15] ==  8'b0000_0011)        // 30000..3FFFF DSR TIPI ROM (32K actually used)
               || (ADR[22:20] ==  3'b001)              // All cartridges mapped to 2M..4M area.
+              || (ADR[22:19] ==  4'b0001)             // SAMS memory 1M to 2M
               || (ADR[22:20] ==  3'b010)              // just testing
 `ifdef PAD_IN_SDRAM
               || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 

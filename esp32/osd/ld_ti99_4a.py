@@ -56,31 +56,32 @@ class ld_ti99_4a:
   def load_rom_auto(self, filedata, filename=""):
     addr=self.cart_rom_region
     tight=0
-    if filename.startswith("/sd/ti99_4a/cart"):
+    fname = filename.lower()
+    if fname.startswith("/sd/ti99_4a/cart"):
       addr=self.cart_rom_region
-    if filename.startswith("/sd/ti99_4a/grom"):
+    if fname.startswith("/sd/ti99_4a/grom"):
       addr=self.cart_grom_region
-    if filename.startswith("/sd/ti99_4a/dsr"):
+    if fname.startswith("/sd/ti99_4a/dsr"):
       addr=self.cart_tipi_region   # DSR routines to drive TIPI
-    if filename.endswith("8.bin"):
+    if fname.endswith("8.bin"):
       addr=self.cart_rom_region
-    if filename.endswith("c.bin"):
+    if fname.endswith("c.bin"):
       addr=self.cart_rom_region
-    if filename.endswith("d.bin"):
+    if fname.endswith("d.bin"):
       addr=self.cart_rom_region+0x2000
-    if filename.endswith("g.bin"):
+    if fname.endswith("g.bin"):
       addr=self.cart_grom_region
-    if filename.endswith("g3.bin"):
+    if fname.endswith("g3.bin"):
       addr=self.cart_grom_region
-    if filename.endswith("g4.bin"):
+    if fname.endswith("g4.bin"):
       addr=self.cart_grom_region+0x2000
-    if filename.endswith("g5.bin"):
+    if fname.endswith("g5.bin"):
       addr=self.cart_grom_region+0x4000
-    if filename.endswith("g6.bin"):
+    if fname.endswith("g6.bin"):
       addr=self.cart_grom_region+0x6000
-    if filename.endswith("g7.bin"):
+    if fname.endswith("g7.bin"):
       addr=self.cart_grom_region+0x8000
-    if filename.endswith("6k.bin"):
+    if fname.endswith("6k.bin"):
       addr=self.cart_grom_region
       tight=1
     if tight:
