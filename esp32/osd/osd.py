@@ -390,7 +390,7 @@ class osd:
   #    self.spi.write(bytearray(a)) # write content
   #    self.cs.off()
 
-  def load_sys_grom(self):
+  def load_console_grom(self):
     gromfile = "/sd/ti99_4a/grom/994AGROM.Bin"
     import ld_ti99_4a
     s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
@@ -402,12 +402,48 @@ class osd:
     del s
     gc.collect()
 
+  def load_console_rom(self):
+    romfile = "/sd/ti99_4a/rom/994AROM.Bin"
+    import ld_ti99_4a
+    s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
+    s.reset_on()
+    print("System ROM file: {}".format(romfile))
+    bytes = s.load_stream(open(romfile,"rb"),0)
+    print("Loaded {} bytes".format(bytes))
+    s.reset_off()
+    del s
+    gc.collect()
+
+  def load_roms(self):
+    romfile = "/sd/ti99_4a/rom/994AROM.Bin"
+    gromfile = "/sd/ti99_4a/grom/994AGROM.Bin"
+    import ld_ti99_4a
+    s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
+    s.reset_on()
+    # Load ROM
+    print("System ROM file: {}".format(romfile))
+    bytes = s.load_stream(open(romfile,"rb"),0)
+    print("Loaded {} bytes".format(bytes))
+    # Load GROM
+    print("GROM file: {}".format(gromfile))
+    bytes = s.load_stream(open(gromfile,"rb"),0x10000)
+    print("Loaded {} bytes".format(bytes))
+    # remove reset
+    s.reset_off()
+    del s
+    gc.collect()
+
   def save_mem(self, filename, addr,length):
     import ld_ti99_4a
+    old_freq = self.spi_freq
+    self.spi_freq = const(100000)
+    self.init_spi()
     s=ld_ti99_4a.ld_ti99_4a(self.spi, self.cs)
     print("Saving memory from {} length {} file: {}".format(addr, length, filename))
     s.save_stream(open(filename,"wb"), addr, length)
     del s
+    self.spi_freq = old_freq
+    self.init_spi()
     gc.collect()
 
 # FPGA init function not part of class.
@@ -425,5 +461,6 @@ os.mount(SDCard(slot=3),"/sd")
 load_fpga()
 
 run=osd()
+run.load_roms()
 
 

@@ -109,7 +109,7 @@ class ld_ti99_4a:
 
   def ctrl(self,i):
     self.cs.on()
-    self.spi.write(bytearray([0, 0x01, 0x00, 0x00, 0x08, i]))
+    self.spi.write(bytearray([0, 0x01, 0x00, 0x00, 0x08, i, i]))
     self.cs.off()
 
   def reset_on(self):

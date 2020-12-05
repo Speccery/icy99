@@ -4,8 +4,10 @@
 // It instanciates the platform neutral sys.v which
 // implements the TI-99/4A.
 
-`define CONSOLE_GROM_IN_SDRAM 1 // commenting this out -> works
-`define CART_GROM_IN_SDRAM    1 // this works 
+// The following macros enable placement of ROM contents to SDRAM to save internal block RAM.
+`define CONSOLE_GROM_IN_SDRAM 1   // 24K
+`define CART_GROM_IN_SDRAM    1   // 32K
+`define CONSOLE_ROM_IN_SDRAM  1   // 8K
 
 
 module top_ulx3s
@@ -137,6 +139,9 @@ module top_ulx3s
   wire [31:0] spi_ram_addr;
   wire  [7:0] spi_ram_di;
   reg   [7:0] spi_ram_do;
+
+  `define CPU_CONTROL_ACCESS  spi_ram_addr[31:24] == 8'hFF
+  `define RAM_ACCESS          spi_ram_addr[31:28] == 4'h0
   
   assign sd_d[0] = 1'bz;
   assign sd_d[3] = 1'bz; // FPGA pin pullup sets SD card inactive at SPI bus
@@ -169,7 +174,7 @@ module top_ulx3s
 
   reg [7:0] R_cpu_control;
   always @(posedge clk) begin
-    if (spi_ram_wr && spi_ram_addr[31:24] == 8'hFF) begin
+    if (spi_ram_wr && `CPU_CONTROL_ACCESS) begin
       R_cpu_control <= spi_ram_di;
     end
   end
@@ -183,7 +188,7 @@ module top_ulx3s
   reg   [7:0] bootloader_dout;
 
   always @(posedge clk)
-    if((spi_ram_rd || spi_ram_wr) && spi_ram_addr[31:24] == 8'h00)
+    if((spi_ram_rd || spi_ram_wr) && `RAM_ACCESS)
       bootloader_addr <= spi_ram_addr;
 
   always @(posedge clk)
@@ -195,7 +200,7 @@ module top_ulx3s
     end
     else
     begin
-      if(spi_ram_rd && spi_ram_addr[31:24] == 8'h00)
+      if(spi_ram_rd && `RAM_ACCESS)
       begin
         bootloader_read_rq <= 1;
       end
@@ -208,7 +213,7 @@ module top_ulx3s
       bootloader_write_rq <= 0;
     else
     begin
-      if(spi_ram_wr && spi_ram_addr[31:24] == 8'h00)
+      if(spi_ram_wr && `RAM_ACCESS)
       begin
         bootloader_write_rq <= 1;
         bootloader_dout <= spi_ram_di;
@@ -258,6 +263,9 @@ module top_ulx3s
               || (ADR[22:20] ==  3'b001)              // All cartridges mapped to 2M..4M area.
               || (ADR[22:19] ==  4'b0001)             // SAMS memory 1M to 2M
               || (ADR[22:20] ==  3'b010)              // just testing
+`ifdef CONSOLE_ROM_IN_SDRAM
+              || rom_sel
+`endif
 `ifdef PAD_IN_SDRAM
               || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 
 `endif 
@@ -277,8 +285,10 @@ module top_ulx3s
   wire [13:0]ram_exp_addr = { (ADR[14:12] == 3'b010) ? 2'b00 : ADR[13:12], ADR[11:0] };
  
   // ROM
+`ifndef CONSOLE_ROM_IN_SDRAM
   wire [7:0] rom_out_lo, rom_out_hi;
   rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_25mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
+`endif
   // SCRATCHPAD (here 1K not 256bytes)
 `ifndef PAD_IN_SDRAM
   wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;
@@ -356,7 +366,7 @@ module top_ulx3s
   // generate wait states for SDRAM access
   always @(posedge clk)
   begin 
-    my_as_q <= my_as; // DEBUGGING: Delay the strobe issue to SDRAM controller by on cycle. 
+    my_as_q <= my_as; // DEBUGGING: Delay the strobe issue to SDRAM controller by one cycle. 
 
     busy_count <= (|busy_count) ? busy_count - 7'd1 : 0;
     if (my_as)      busy_count <= 7'd100;
@@ -402,7 +412,9 @@ module top_ulx3s
 
   // Data input multiplexer
   assign sram_pins_din = 
+`ifndef CONSOLE_ROM_IN_SDRAM
     rom_sel ? { rom_out_hi, rom_out_lo } :
+`endif
 `ifndef PAD_IN_SDRAM
     pad_sel ? { pad_out_hi, pad_out_lo } :
 `endif
