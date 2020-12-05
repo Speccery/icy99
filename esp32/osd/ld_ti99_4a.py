@@ -18,6 +18,7 @@ class ld_ti99_4a:
 
   # read from file -> write to SPI RAM
   def load_stream(self, filedata, addr=0, maxlen=0x200000, blocksize=1024):
+    print("load_stream: addr={}".format(addr))
     block = bytearray(blocksize)
     # Request load
     self.cs.on()
@@ -30,6 +31,7 @@ class ld_ti99_4a:
       else:
         break
     self.cs.off()
+    return bytes_loaded
 
   # tight GROM file (no padding)
   # each 6K block from this file is written to even 8K address
@@ -107,7 +109,7 @@ class ld_ti99_4a:
 
   def ctrl(self,i):
     self.cs.on()
-    self.spi.write(bytearray([0, 0x00, 0x10, 0x00, 0x08, i]))
+    self.spi.write(bytearray([0, 0x01, 0x00, 0x00, 0x08, i]))
     self.cs.off()
 
   def reset_on(self):

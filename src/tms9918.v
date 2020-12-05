@@ -534,9 +534,7 @@ end
                 pixel_out_4bit = 4'd6;
             end
           end
-*/
-          // if((VGARow & 1) && (VGACol == slv_479 || VGACol == 0))
-          //  pixel_out_4bit = 4'd6;  // Draw a red line here, to see where the heck it is on the screen.
+ */
         end else begin
           pixel_out_4bit = 4'h0;
         end
@@ -578,7 +576,6 @@ end
           if(detect_frame_end == 1'b1) begin            
             detect_frame_end <= 1'b0;
             detect_line_end  <= 1'b0;
-            // if(VGARow == disp_rendr_slv && VGACol == {8'h00,2'b00}) begin // EPEP BUG- this may miss if CPU is accessing memory
             // start rendering
             refresh_state <= process_line;
             vga_bank <= 1'b0;
@@ -637,7 +634,6 @@ end
                 // read M3
                 // Graphics mode 1 (actually anything else than graphics mode 2)
                 vram_out_addr <= {reg4[2:0],char_code,ypos[2:0]};
-                // VGARow(3 downto 1);
               end
               else begin
                 // Graphics mode 2. 768 unique characters are possible.
@@ -934,7 +930,6 @@ end
         wait_line : begin
           if(detect_line_end == 1'b1) begin 
             detect_line_end <= 1'b0;
-            // if(VGARow == (({ypos,1'b0}) + disp_start2) && VGACol == slv_760) begin  // EPEP this will miss if CPU accessing memory.
             sprite_early_clocks <= 6'd0;
             // we arrived at next line boundary, process it
             vga_bank <=  ~vga_bank;

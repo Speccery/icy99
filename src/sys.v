@@ -281,8 +281,8 @@ reg [9:0] xpos, ypos;
 assign lcd_wr_data = { red, 1'b0, green, 2'b00, blue, 1'b0 };
 reg last_hsync;
 
-parameter HPOS=10'd64;
-parameter VPOS=10'd24;
+parameter HPOS=10'd78;
+parameter VPOS=10'd42;
 
 `define INVERT
 

@@ -390,10 +390,40 @@ class osd:
   #    self.spi.write(bytearray(a)) # write content
   #    self.cs.off()
 
-os.mount(SDCard(slot=3),"/sd")
+  def load_sys_grom(self):
+    gromfile = "/sd/ti99_4a/grom/994AGROM.Bin"
+    import ld_ti99_4a
+    s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
+    s.reset_on()
+    print("GROM file: {}".format(gromfile))
+    bytes = s.load_stream(open(gromfile,"rb"),0x10000)
+    print("Loaded {} bytes".format(bytes))
+    s.reset_off()
+    del s
+    gc.collect()
 
-fpga_config_file="/sd/ti99_4a/bitstreams/ti994a_ulx3s.bit"
-print("FPGA file: {}".format(fpga_config_file))
-ecp5.prog(fpga_config_file) # ulx3s_85f_spi_ti99_4a.bit")
-gc.collect()
+  def save_mem(self, filename, addr,length):
+    import ld_ti99_4a
+    s=ld_ti99_4a.ld_ti99_4a(self.spi, self.cs)
+    print("Saving memory from {} length {} file: {}".format(addr, length, filename))
+    s.save_stream(open(filename,"wb"), addr, length)
+    del s
+    gc.collect()
+
+# FPGA init function not part of class.
+def load_fpga():
+  fpga_config_file="/sd/ti99_4a/bitstreams/ti994a_ulx3s.bit"
+  print("FPGA file: {}".format(fpga_config_file))
+  ecp5.prog(fpga_config_file) # ulx3s_85f_spi_ti99_4a.bit")
+  gc.collect()
+
+def reset():
+  import machine
+  machine.reset()
+
+os.mount(SDCard(slot=3),"/sd")
+load_fpga()
+
 run=osd()
+
+

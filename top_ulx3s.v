@@ -4,6 +4,10 @@
 // It instanciates the platform neutral sys.v which
 // implements the TI-99/4A.
 
+`define CONSOLE_GROM_IN_SDRAM 1 // commenting this out -> works
+`define CART_GROM_IN_SDRAM    1 // this works 
+
+
 module top_ulx3s
 #(
   // enable (set to 1) only one: c_dvi_v or c_vga2dvid_vhd
@@ -256,7 +260,13 @@ module top_ulx3s
               || (ADR[22:20] ==  3'b010)              // just testing
 `ifdef PAD_IN_SDRAM
               || (ADR[22: 9] == 14'b0000_0000_1000_00) //  1K @ 08000 
-`endif              
+`endif 
+`ifdef CONSOLE_GROM_IN_SDRAM
+              || (gro_sel && !grom_ext_sel)
+`endif   
+`ifdef CART_GROM_IN_SDRAM
+              || grom_ext_sel
+`endif          
               
               ; 
 
@@ -278,9 +288,11 @@ module top_ulx3s
   dualport_par #(8, 9) pad_hb(pll_25mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_25mhz, ADR[ 8:0], pad_out_hi);
 `endif
 
+`ifndef CONSOLE_GROM_IN_SDRAM
   // GROM 24K
   wire [7:0] gro_out_lo, gro_out_hi;
   rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pll_25mhz, ADR[13:0], {gro_out_hi, gro_out_lo } );
+`endif 
   // GROM extension space for cartridges, so that we can load something in addition to system GROMs.
   // This space is 32K for the ULX3S, two 16K RAM blocks. Fills the range 6000..DFFF (here actually to FFFF).
   // A14-A13-A12
@@ -289,12 +301,14 @@ module top_ulx3s
   // 101? :A,B
   // 110? :C,D
   // 111? :E,F wraps to 6,7
-  wire [15:0] grom_ext_out;
   wire grom_ext_sel = gro_sel && (ADR[14:12] == 3'b011 || ADR[14:12] == 3'b100 || ADR[14:12] == 3'b101 || ADR[14:12] == 3'b110);  
+`ifndef CART_GROM_IN_SDRAM
+  wire [15:0] grom_ext_out;
   wire grom_ext_we_lo = grom_ext_sel && !RAMLB && !RAMWE;
   wire grom_ext_we_hi = grom_ext_sel && !RAMUB && !RAMWE;
   dualport_par #(8, 14) grom_ext_lb(pll_25mhz, grom_ext_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[13:0], grom_ext_out[7:0]);
   dualport_par #(8, 14) grom_ext_hb(pll_25mhz, grom_ext_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_25mhz, ADR[13:0], grom_ext_out[15:8]);
+`endif
 
   // RAM expansion, 32K.
   wire [15:0] ram_expansion_out;
@@ -395,8 +409,12 @@ module top_ulx3s
 `ifdef EXTERNAL_VRAM    
     vra_sel ? { vra_out_hi, vra_out_lo } :
 `endif    
+`ifndef CONSOLE_GROM_IN_SDRAM
     (gro_sel && !grom_ext_sel) ? { gro_out_hi, gro_out_lo } : // system GROM
+`endif
+`ifndef CART_GROM_IN_SDRAM
     grom_ext_sel ? grom_ext_out :           // Cartridge GROM 32K
+`endif
     ram_sel ? ram_expansion_out :
     16'h0000;
 
