@@ -29,3 +29,7 @@ src/tms9918_test.gtkw
 debugcart/layout.xml
 debugcart/meta-inf.xml
 .DS_Store
+bitstreams
+src/sim-tms9918_tb.lxt
+roms/994AGROM.Bin
+roms/994aROM.Bin

@@ -611,6 +611,19 @@ module top_ulx3s
     .o_hsync(osd_vga_hsync), .o_vsync(osd_vga_vsync), .o_blank(osd_vga_blank)
   );
 
+  // Buffer signals going to the DVI conversion.
+  reg [7:0] epr_osd_vga_r, epr_osd_vga_g, epr_osd_vga_b;
+  reg epr_osd_vga_hsync, epr_osd_vga_vsync, epr_osd_vga_blank;
+  always @(pll_25mhz)
+  begin 
+    epr_osd_vga_r     <= osd_vga_r;
+    epr_osd_vga_g     <= osd_vga_g;
+    epr_osd_vga_b     <= osd_vga_b;
+    epr_osd_vga_hsync <= osd_vga_hsync;
+    epr_osd_vga_vsync <= osd_vga_vsync;
+    epr_osd_vga_blank <= osd_vga_blank;
+  end
+
   wire [1:0] tmds[3:0];
   generate
   if(c_dvi_v)
@@ -623,12 +636,12 @@ module top_ulx3s
   (
     .pixclk(pll_25mhz),
     .pixclk_x5(pll_125mhz),
-    .red(osd_vga_r),
-    .green(osd_vga_g),
-    .blue(osd_vga_b), 
-    .vde(~osd_vga_blank),
-    .hSync(osd_vga_hsync),
-    .vSync(osd_vga_vsync),
+    .red(   epr_osd_vga_r),
+    .green( epr_osd_vga_g),
+    .blue(  epr_osd_vga_b), 
+    .vde(  ~epr_osd_vga_blank),
+    .hSync( epr_osd_vga_hsync),
+    .vSync( epr_osd_vga_vsync),
     .tmds_c(tmds[3]),
     .tmds_r(tmds[2]),
     .tmds_g(tmds[1]),

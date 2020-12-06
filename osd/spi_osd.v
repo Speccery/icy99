@@ -37,7 +37,8 @@ module spi_osd
     wire ram_wr;
     wire [31:0] ram_addr;
     wire [7:0] ram_di;
-    reg  [7:0] ram_do;
+    reg  [7:0] ram_do = 8'h00; // EP added initializer to surpress warning, this is never used.
+
     spirw_slave_v
     #(
         .c_addr_bits(32),

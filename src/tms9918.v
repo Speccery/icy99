@@ -58,7 +58,7 @@ module tms9918(
 // CPU side of VRAM and VDP
 reg write_state;
 reg [7:0] hold_reg;
-reg [13:0] vram_addr;
+reg [16:0] vram_addr;
 reg [7:0] reg0;
 reg [7:0] reg1 = 8'h00;  // init with zero, interrupts disabled
 reg [7:0] reg2;
@@ -67,15 +67,38 @@ reg [7:0] reg4;
 reg [7:0] reg5;
 reg [7:0] reg6;
 reg [7:0] reg7;
-reg [7:0] stat_reg = 8'h00;
+// In 9938 mode plenty of additional registers and other regs expanded.
+// R#0 bit 4: IE1, when enabled, raster interrupts are generated
+// R#2 expanded to have bits A16,A15,A14
+// R#4 expanded to have A16, A15, A14
+// R#5 expanded to have A14 bit sprite attribute table
+// R#6 expanded to have A16,A15,A14
+reg mode9938 = 1'b0;
+reg [7:0] reg10;  // Color table high A16,A15,A14 (LSBs) expands reg3
+reg [7:0] reg11;  // Sprite attribute table high A16,A15 (LSBs) expands R5
+reg [7:0] reg14;  // Address A16,A15,A14 (LSBs)
+reg [7:0] reg15;  // Status register pointer (low 4 bits)
+reg [7:0] reg16;  // Color color palette address register (low 4 bits)
+reg [7:0] reg17;  // Control register pointer (low 6 bits, MSB selects autoincrement mode)
+reg [7:0] reg19;  // Interrupt line register -> raster interrupts
+
+reg [7:0] stat_reg0 = 8'h00;
+// 9938 style registers follow
+reg [7:0] stat_reg1 = 8'h0E;  // bits 5..1 = ID#, bit0 = FH horizontal scan interrupt
+                              // Here I set ID to be 7
+
+wire [7:0] active_stat_reg_rd = !mode9938 ? stat_reg0 : // TMS9918 mode
+  reg15[3:0] == 4'h0 ? stat_reg0 : 
+  reg15[3:0] == 4'h1 ? stat_reg1 :
+  stat_reg0;
+wire [5:0] reg4_9938 = mode9938 ? reg4[5:0] : { 3'b000, reg4[2:0]};   // Either full 6 bits (9938) or 3 bits (9918)
+
 reg [7:0] mem_rd_bus;
 reg bump_rq;
 reg vdp_rd_prev;
 reg vdp_mode_prev;
 reg [1:0] vdp_addr_prev;  // video refresh circuit
 wire columns_80 = reg0[2];
-//	signal vga_addr	: std_logic_vector(13 downto 0);
-//	signal vga_out		: std_logic_vector(7 downto 0);	-- VRAM read bus for refresh
 reg clk25MHz;  // 25MHz 25/75 clock
 reg [1:0] clkdiv=0;
 wire Hsync;
@@ -89,7 +112,7 @@ reg clk12_5MHz;  // 12.5 MHz 50/50 clock
 // linebuffer based VGA implementation
 wire [7:0] vga_line_buf_out;  // linebuf to VGA data out
 reg [7:0] vga_line_buf_in;  // write bus to linebuffer
-reg [13:0] vram_out_addr;  // vram hardware addr bus
+reg [16:0] vram_out_addr;  // vram hardware addr bus
 wire [9:0] line_buf_addra;
 wire [9:0] line_buf_addrb;
 wire [0:0] line_buf_bit8_out;
@@ -150,8 +173,8 @@ parameter [2:0]
   write_pixel_last = 7;
 
 reg [2:0] process_pixel;
-reg [13:0] char_addr;
-reg [13:0] char_addr_reload;
+reg [16:0] char_addr;
+reg [16:0] char_addr_reload;
 reg [7:0] char_code;
 reg [7:0] char_pattern;
 reg [3:0] color0;
@@ -183,6 +206,8 @@ reg [8:0] sprite_line_check;
 // debug counters to find out what is going on
 reg [15:0]  dbg_bytes_read_count;
 reg [15:0]  dbg_bytes_read_total;
+
+wire [31:0] debugAdisplay = { reg15, reg4, 7'h00, mode9938, reg2};  // debugA
 
 //1:0, 0, 0
 //2:0, 241, 20
@@ -222,7 +247,7 @@ initial begin
 end
 
   assign data_out = mode == 1'b0 && addr[7:6] == 2'b00 ? {mem_rd_bus,8'h00} : 
-                    mode == 1'b1 && addr[7:6] == 2'b00 ? {stat_reg,8'h00} : 
+                    mode == 1'b1 && addr[7:6] == 2'b00 ? {active_stat_reg_rd,8'h00 } :
                     addr == 8'h40 ? {reg0,8'h00} : 
                     addr == 8'h41 ? {reg1,8'h00} : 
                     addr == 8'h42 ? {2'b00,reg2[3:0],10'b0000000000} :  
@@ -231,12 +256,25 @@ end
                     addr == 8'h45 ? {2'b00,reg5[6:0],7'b0000000} : 
                     addr == 8'h46 ? {2'b00,reg6[2:0],11'b00000000000} : 
                     addr == 8'h47 ? {reg7,8'h00} : 
-                    addr == 8'h48 ? {2'b00,vram_addr} : 
+                    addr == 8'h48 ? {vram_addr[15:0]} : 
                     addr == 8'h49 ? {6'b000000,VGACol} : 
                     addr == 8'h4A ? {6'b000000,VGARow} : 
                     addr == 8'h4B ? {vga_bank,2'b00,12'h000,blanking} :
                     addr == 8'h4C ? dbg_bytes_read_total :
                     addr == 8'h4D ? dbg_bytes_read_count :
+                    addr == 8'h52 ? { reg2, 8'h00 } :
+                    addr == 8'h53 ? { reg3, 8'h00 } :
+                    addr == 8'h54 ? { reg4, 8'h00 } :
+                    addr == 8'h55 ? { reg5, 8'h00 } :
+                    addr == 8'h56 ? { reg6, 8'h00 } :
+                    addr == 8'h57 ? { reg7, 8'h00 } :
+                    addr == 8'h5A ? { reg10, 8'h00 } :
+                    addr == 8'h5B ? { reg11, 8'h00 } :
+                    addr == 8'h5E ? { reg14, 8'h00 } :
+                    addr == 8'h5F ? { reg15, 8'h00 } :
+                    addr == 8'h60 ? { reg16, 8'h00 } :
+                    addr == 8'h61 ? { reg17, 8'h00 } :
+                    addr == 8'h63 ? { reg19, 8'h00 } :
                      0;
 
   //////////////////////////////////////////////////////////////////////////////////////////////
@@ -367,16 +405,19 @@ end
 
   assign debug1 = vga_bank;
   assign debug2 = refresh_state == wait_line ? 1'b1 : 1'b0;
-  // stat_reg(7): interrupt pending
+  // stat_reg0(7): interrupt pending
   // reg1(5): Interrupt enable, i.e. mask bit
-  assign int_out = stat_reg[7] == 1'b1 && reg1[5] == 1'b1 ? 1'b1 : 1'b0;
+  assign int_out = stat_reg0[7] == 1'b1 && reg1[5] == 1'b1 ? 1'b1 : 1'b0;
 
   reg [5:0] sprite_limit; // Render no more than 8 sprites per scanline
 
   reg detect_frame_end = 1'b0, detect_line_end = 1'b0;
 
   // Name table memory base address. In 80 column mode the two LSBs are not used.
-  wire [13:0] name_table_addr = columns_80 ? { reg2[3:2], 12'b0000_0000_0000 } : { reg2[3:0], 10'b00_0000_0000};
+  wire [2:0] name_high_addr = mode9938 ? reg2[6:4] : 3'b000 ;
+  wire [16:0] name_table_addr = columns_80 ? { name_high_addr, reg2[3:2], 12'b0000_0000_0000 } : { name_high_addr, reg2[3:0], 10'b00_0000_0000};
+  
+  
   // Cell width in scanline buffer pixels
   wire [4:0]  cell_width = columns_80 ? (reg1[4] == 1'b1 ? 6 : 8)      
                             : (reg1[4] == 1'b1 ? 12 : 16);
@@ -395,7 +436,8 @@ end
       write_state <= 1'b0;
       bump_rq <= 1'b0;
       refresh_state <= wait_frame;
-      stat_reg <= 8'h00;
+      stat_reg0 <= 8'h00;
+      stat_reg1 <= 8'h0E;
       sig_coinc_pending <= 1'b0;
       sig_5th_pending <= 1'b0;
       cpu_mem_write_pending <= 1'b0;
@@ -408,6 +450,14 @@ end
       detect_line_end  <= 1'b0;
       drawing <= 1'b0;
       mask_coinc_before_next_render <= 1'b0;
+      reg10 <= 8'h00;
+      reg11 <= 8'h00;
+      reg14 <= 8'h00;
+      reg15 <= 8'h00;
+      reg16 <= 8'h00;
+      reg17 <= 8'h00;
+      reg19 <= 8'h00;
+      mode9938 <= 1'b0;
     end else begin
       // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
       // // It is high once per 4 clock cycles.
@@ -437,24 +487,32 @@ end
           case(data_in[7:6])
           2'b00 : begin
             // read from vram setup
-            vram_addr <= {data_in[5:0],hold_reg};
+            vram_addr <= {mode9938 ? 3'b000 : reg14[2:0], data_in[5:0],hold_reg};
           end
           2'b01 : begin
             // write to vram setup
-            vram_addr <= {data_in[5:0],hold_reg};
+            vram_addr <= {mode9938 ? 3'b000 : reg14[2:0], data_in[5:0],hold_reg};
           end
           2'b10 : begin
             // write to VDP register. Changed this code to decode 6 bits of register address
             // to support 80 column mode. Earlier only decoded 3 bits.
             case(data_in[5:0])
-            6'd0 : reg0 <= hold_reg;
+            6'd0 : reg0 <= hold_reg;    // 9938: IE1 bit 4
             6'd1 : reg1 <= hold_reg;
-            6'd2 : reg2 <= hold_reg;
+            6'd2 : reg2 <= hold_reg;    // 9938: 3 more bits of pattern layout table
             6'd3 : reg3 <= hold_reg;
-            6'd4 : reg4 <= hold_reg;
-            6'd5 : reg5 <= hold_reg;
-            6'd6 : reg6 <= hold_reg;
+            6'd4 : reg4 <= hold_reg;    // 9938: 3 more bits of pattern generator address
+            6'd5 : reg5 <= hold_reg;    // 9938: MSB A14 of sprite attribute table
+            6'd6 : reg6 <= hold_reg;    // 9938: 3 more bits of sprite pattern generator table
             6'd7 : reg7 <= hold_reg;
+            6'd10 : reg10 <= hold_reg;  // 9938
+            6'd11 : reg11 <= hold_reg;  // 9938
+            6'd14 : reg14 <= hold_reg;  // 9938
+            6'd15 : reg15 <= hold_reg;  // 9938: low 4 bits select status register
+            6'd16 : reg16 <= hold_reg;  // 9938
+            6'd17 : reg17 <= hold_reg;  // 9938
+            6'd19 : reg19 <= hold_reg;  // 9938
+            6'd63 : mode9938 <= hold_reg[0];    // EPEP BUGBUG enable 9938 with register 63 bit 0
             endcase
           end
           default : begin
@@ -482,16 +540,17 @@ end
       vdp_rd_prev <= rd;
       vdp_mode_prev <= mode;
       vdp_addr_prev <= addr[7:6];
-      if(vdp_rd_prev == 1'b1 && rd == 1'b0 && vdp_mode_prev == 1'b1 && vdp_addr_prev == 2'b00) begin
+      if(vdp_rd_prev == 1'b1 && rd == 1'b0 && vdp_mode_prev == 1'b1 && vdp_addr_prev == 2'b00 
+        && (!mode9938 || (mode9938 && reg15[3:0] == 4'h0))) begin
         // read became inactive on status register, clear interrupt request
-        stat_reg[7] <= 1'b0;
-        stat_reg[6] <= 1'b0;
+        stat_reg0[7] <= 1'b0;
+        stat_reg0[6] <= 1'b0;
         // also reset fifth sprite bit if active
-        stat_reg[5] <= 1'b0;
+        stat_reg0[5] <= 1'b0;
         // and coincide flag, if any two sprites have overlapping pixels (transparent are considered too)
       end
       if(bump_rq == 1'b1 && rd == 1'b0) begin
-        vram_addr <= 1 + vram_addr;
+        vram_addr <= 1 + vram_addr; // Needs to be modified for 9938
         bump_rq <= 1'b0;
       end
       // VGA processing
@@ -521,12 +580,13 @@ end
           // Show debug information.
           if(VGARow[9:2] == 8'h40) begin
             if(VGACol < 256) begin
-              pixel_out_4bit = debugA[31 - VGACol[7:3]] ? 4'd15 : 4'd1;
+              pixel_out_4bit = debugAdisplay[31 - VGACol[7:3]] ? 4'd15 : 4'd1;
               if(VGACol[4:0] == 5'b0_0000)
                 pixel_out_4bit = 4'd6;
             end
           end
-
+*/
+/*
           if(VGARow[9:2] == 8'h48) begin
             if(VGACol < 256) begin
               pixel_out_4bit = debugB[31 - VGACol[7:3]] ? 4'd15 : 4'd1;
@@ -627,19 +687,19 @@ end
               if(reg1[3] == 1'b1) begin
                 // read M2, if set we have multicolor mode
                 // multicolor mode
-                vram_out_addr <= {reg4[2:0],char_code,ypos[4:2]};
+                vram_out_addr <= {reg4_9938,char_code,ypos[4:2]};
                 // ignore two LSBs, "pixels" are four high
               end
               else if(reg0[1] == 1'b0) begin
                 // read M3
                 // Graphics mode 1 (actually anything else than graphics mode 2)
-                vram_out_addr <= {reg4[2:0],char_code,ypos[2:0]};
+                vram_out_addr <= {reg4_9938,char_code,ypos[2:0]};
               end
               else begin
                 // Graphics mode 2. 768 unique characters are possible.
                 // Implement UNDOCUMENTED FEATURE: bits 1 and 0 of reg4 act as bit masks for the two
                 // MSBs of the 10 bit char code. This allows character set to be limited even in this mode.
-                vram_out_addr <= {reg4[2],char_addr[9:8] & reg4[1:0],char_code,ypos[2:0]};
+                vram_out_addr <= {reg4_9938[5:2],char_addr[9:8] & reg4_9938[1:0],char_code,ypos[2:0]};
                 // 8 bit code and line in character
               end
               ram_read_rq <= 1'b1;
@@ -652,13 +712,13 @@ end
               // store pattern, and work out the address of the color byte
               // pattern will be ready in the next cycle in pipeline mode: char_pattern = mem_data_in; 
               if(reg0[1] == 1'b0) begin  // Graphics mode 1
-                vram_out_addr <= {reg3,1'b0,char_code[7:3]};
+                vram_out_addr <= {reg10[2:0], reg3,1'b0,char_code[7:3]};
               end
               else begin
                 // Graphics mode 2
                 // Implement UNDOCUMENTED FEATURE: bits 6 through 0 of reg3 act as bit masks for the seven
                 // MSBs of the 10 bit char code. This allows character set to be limited even in this mode.
-                vram_out_addr <= {reg3[7],{char_addr[9:8],char_code[7:3]} & reg3[6:0],char_code[2:0],ypos[2:0]};
+                vram_out_addr <= {reg10[2:0],reg3[7],{char_addr[9:8],char_code[7:3]} & reg3[6:0],char_code[2:0],ypos[2:0]};
               end
               process_pixel <= read_color;
               // now char addr is no longer used and we can increment to next.
@@ -751,7 +811,7 @@ end
           // start from the lowest numbered sprite
           sprite_counter_next <= 5'b00001;
           refresh_state <= count_active_sprites;
-          vram_out_addr <= {reg5[6:0],5'b00000,2'b00};
+          vram_out_addr <= {reg11[1:0], reg5[7:0],5'b00000,2'b00};
           // start reading sprite 0 Y-coordinate
           active_sprites <= {6{1'b0}};
           // Request external memory bus and enter pipelined mode.
@@ -774,7 +834,7 @@ end
                 if(active_sprites == {2'b00,4'h4}) begin
                   // this would be the fifth sprite
                   sig_5th_pending <= 1'b1;
-                  stat_reg[4:0] <= sprite_counter;
+                  stat_reg0[4:0] <= sprite_counter;
                 end
               end
 
@@ -786,14 +846,14 @@ end
                 // Note here we do not change refresh state, we stay in this state while counting.
                 sprite_counter <= sprite_counter_next;
                 sprite_counter_next <= (sprite_counter_next) + 1;
-                vram_out_addr <= {reg5[6:0],sprite_counter_next,2'b00};
+                vram_out_addr <= {reg11[1:0], reg5[7:0],sprite_counter_next,2'b00};
                 ram_read_rq <= 1'b1;
               end
             end
           end
         end
         sprites_addr : begin
-          vram_out_addr <= {reg5[6:0],sprite_counter,2'b00};
+          vram_out_addr <= {reg11[1:0], reg5[7:0],sprite_counter,2'b00};
           refresh_state <= sprite_read_vert;
           ram_read_rq <= 1'b1;
         end
@@ -809,7 +869,7 @@ end
               else begin
                 sprite_y <= {1'b1,mem_data_in};
               end
-              vram_out_addr <= {reg5[6:0],sprite_counter,2'b01};
+              vram_out_addr <= {reg11[1:0], reg5[7:0],sprite_counter,2'b01};
               refresh_state <= sprite_read_horiz;
               ram_read_rq <= 1'b1;
             end
@@ -820,7 +880,7 @@ end
             // sprite_line <= unsigned("1" & ypos) - unsigned("0" & sprite_y);
             sprite_line <= ({1'b1,ypos}) - (sprite_y) - 1;
             sprite_x <= mem_data_in;
-            vram_out_addr <= {reg5[6:0],sprite_counter,2'b10};
+            vram_out_addr <= {reg11[1:0], reg5[7:0],sprite_counter,2'b10};
             refresh_state <= sprite_read_char;
             ram_read_rq <= 1'b1;
           end
@@ -830,13 +890,13 @@ end
             // First condition for 16x16 and second for 8x8 sprite sizes.
             if((reg1[1] == 1'b1 && sprite_line[8:4] == 5'b00000) || (reg1[1] == 1'b0 && sprite_line[8:3] == 6'b000000)) begin
               sprite_name <= mem_data_in;
-              vram_out_addr <= {reg5[6:0],sprite_counter,2'b11};
+              vram_out_addr <= {reg11[1:0], reg5[7:0],sprite_counter,2'b11};
               refresh_state <= sprite_read_color;
               // active_sprites <= (active_sprites) + 1;
               // if(active_sprites == {2'b00,4'h4}) begin
               //   // this would be the fifth sprite
               //   sig_5th_pending <= 1'b1;
-              //   stat_reg[4:0] <= sprite_counter;
+              //   stat_reg0[4:0] <= sprite_counter;
               // end
               ram_read_rq <= 1'b1;
             end else begin
@@ -850,11 +910,11 @@ end
             sprite_color <= mem_data_in;
             if(reg1[1] == 1'b1) begin
               // 16x16 sprite
-              vram_out_addr <= {reg6[2:0],sprite_name[7:2],1'b0,sprite_line[3:0]};
+              vram_out_addr <= {reg6[5:0],sprite_name[7:2],1'b0,sprite_line[3:0]};
             end
             else begin
               // 8x8 sprite
-              vram_out_addr <= {reg6[2:0],sprite_name[7:0],sprite_line[2:0]};
+              vram_out_addr <= {reg6[5:0],sprite_name[7:0],sprite_line[2:0]};
             end
             refresh_state <= sprite_read_pattern0;
             ram_read_rq <= 1'b1;
@@ -869,7 +929,7 @@ end
             // else begin
               sprite_pixels[15:8] <= mem_data_in;
             // end
-            vram_out_addr <= {reg6[2:0],sprite_name[7:2],1'b1,sprite_line[3:0]};
+            vram_out_addr <= {reg6[5:0],sprite_name[7:2],1'b1,sprite_line[3:0]};
             refresh_state <= sprite_read_pattern1;
             ram_read_rq <= 1'b1;
           end
@@ -948,15 +1008,15 @@ end
             if(ypos == 192) begin
               blanking <= 1'b1;
               refresh_state <= wait_frame;
-              stat_reg[7] <= 1'b1; // make VDP interrupt pending
+              stat_reg0[7] <= 1'b1; // make VDP interrupt pending
             end
             if(sig_coinc_pending == 1'b1) begin
-              stat_reg[5] <= 1'b1;  // set COINCinde flag (also set for transparent sprites)
+              stat_reg0[5] <= 1'b1;  // set COINCinde flag (also set for transparent sprites)
               sig_coinc_pending <= 1'b0;
               mask_coinc_before_next_render <= 1'b1;  // Don't react to wr_coinc_pending before next time sprites start
             end
             if(sig_5th_pending == 1'b1) begin
-              stat_reg[6] <= 1'b1;
+              stat_reg0[6] <= 1'b1;
               sig_5th_pending <= 1'b0;
             end
           end else if (VGACol < slv_760-10'd32) begin
@@ -1071,15 +1131,16 @@ end
     ram_read_buffer <= ram_read_out;  
   end
 
-  dualport_par #(.WIDTH(8), .DEPTH(14)) FRAMEBUFFER (
+  // VRAM extended to 64K
+  dualport_par #(.WIDTH(8), .DEPTH(16)) FRAMEBUFFER (
     // Port A, write port
     .clk_a(clk),
     .we_a(ram_write_rq),
-    .addr_a(vram_out_addr),
+    .addr_a(vram_out_addr[15:0]),
     .din_a(data_in),  // The write data always comes from the CPU
     // Port B, our read port
     .clk_b(clk),
-    .addr_b(vram_out_addr),
+    .addr_b(vram_out_addr[15:0]),
     .dout_b(ram_read_out)  // Data read from VRAM goes always to mem_data_in bus.
   );
 `endif

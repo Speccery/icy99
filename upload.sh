@@ -13,3 +13,6 @@ lcd esp32/osd
 put osd.py
 put ld_ti99_4a.py
 bye
+EOT
+
+
