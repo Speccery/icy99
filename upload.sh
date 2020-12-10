@@ -12,6 +12,10 @@ pwd
 lcd esp32/osd
 put osd.py
 put ld_ti99_4a.py
+cd /sd/ti99_4a/cart
+pwd
+lcd ../../debugcart
+put VDP9938.bin
 bye
 EOT
 

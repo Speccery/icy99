@@ -74,6 +74,7 @@ reg [7:0] reg7;
 // R#5 expanded to have A14 bit sprite attribute table
 // R#6 expanded to have A16,A15,A14
 reg mode9938 = 1'b0;
+reg [7:0] reg9;   // bit 7=1: 212 scanlines
 reg [7:0] reg10;  // Color table high A16,A15,A14 (LSBs) expands reg3
 reg [7:0] reg11;  // Sprite attribute table high A16,A15 (LSBs) expands R5
 reg [7:0] reg14;  // Address A16,A15,A14 (LSBs)
@@ -81,15 +82,19 @@ reg [7:0] reg15;  // Status register pointer (low 4 bits)
 reg [7:0] reg16;  // Color color palette address register (low 4 bits)
 reg [7:0] reg17;  // Control register pointer (low 6 bits, MSB selects autoincrement mode)
 reg [7:0] reg19;  // Interrupt line register -> raster interrupts
+// F18A 30 lines mode
+reg [7:0] reg49;  // bit 6=1: 30 character lines
 
 reg [7:0] stat_reg0 = 8'h00;
 // 9938 style registers follow
-reg [7:0] stat_reg1 = 8'h0E;  // bits 5..1 = ID#, bit0 = FH horizontal scan interrupt
-                              // Here I set ID to be 7
+reg [7:0] stat_reg1 = 8'h00;  // bits 5..1 = ID#, bit0 = FH horizontal scan interrupt
+                              // Here I set ID to be 0
 
 wire [7:0] active_stat_reg_rd = !mode9938 ? stat_reg0 : // TMS9918 mode
   reg15[3:0] == 4'h0 ? stat_reg0 : 
   reg15[3:0] == 4'h1 ? stat_reg1 :
+  reg15[3:0] == 4'h4 ? 8'hFE :  // Status register S#4: 1111_111,X8
+  reg15[3:0] == 4'h6 ? 8'hFC :  // Status register S#6: 1111_11,Y9,Y8
   stat_reg0;
 wire [5:0] reg4_9938 = mode9938 ? reg4[5:0] : { 3'b000, reg4[2:0]};   // Either full 6 bits (9938) or 3 bits (9918)
 
@@ -413,6 +418,11 @@ end
 
   reg detect_frame_end = 1'b0, detect_line_end = 1'b0;
 
+  // Last scanline is 192 normally, 212 in a specific 9938 case.
+  wire [7:0] last_scanline = mode9938 && reg9[7] == 1'b1 ? 212 : // 9938 212 scanlines
+      mode9938 && reg49[6] == 1'b1 ? 240 :    // F18A 30 lines
+      192;
+
   // Name table memory base address. In 80 column mode the two LSBs are not used.
   wire [2:0] name_high_addr = mode9938 ? reg2[6:4] : 3'b000 ;
   wire [16:0] name_table_addr = columns_80 ? { name_high_addr, reg2[3:2], 12'b0000_0000_0000 } : { name_high_addr, reg2[3:0], 10'b00_0000_0000};
@@ -437,7 +447,7 @@ end
       bump_rq <= 1'b0;
       refresh_state <= wait_frame;
       stat_reg0 <= 8'h00;
-      stat_reg1 <= 8'h0E;
+      stat_reg1 <= 8'h00; // Pretend that this is 9938
       sig_coinc_pending <= 1'b0;
       sig_5th_pending <= 1'b0;
       cpu_mem_write_pending <= 1'b0;
@@ -450,6 +460,7 @@ end
       detect_line_end  <= 1'b0;
       drawing <= 1'b0;
       mask_coinc_before_next_render <= 1'b0;
+      reg9 <= 8'h00;
       reg10 <= 8'h00;
       reg11 <= 8'h00;
       reg14 <= 8'h00;
@@ -457,6 +468,7 @@ end
       reg16 <= 8'h00;
       reg17 <= 8'h00;
       reg19 <= 8'h00;
+      reg49 <= 8'h00;
       mode9938 <= 1'b0;
     end else begin
       // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
@@ -505,6 +517,7 @@ end
             6'd5 : reg5 <= hold_reg;    // 9938: MSB A14 of sprite attribute table
             6'd6 : reg6 <= hold_reg;    // 9938: 3 more bits of sprite pattern generator table
             6'd7 : reg7 <= hold_reg;
+            6'd9 : reg9 <= hold_reg;    // 9938 select 212 scanlines
             6'd10 : reg10 <= hold_reg;  // 9938
             6'd11 : reg11 <= hold_reg;  // 9938
             6'd14 : reg14 <= hold_reg;  // 9938
@@ -512,6 +525,7 @@ end
             6'd16 : reg16 <= hold_reg;  // 9938
             6'd17 : reg17 <= hold_reg;  // 9938
             6'd19 : reg19 <= hold_reg;  // 9938
+            6'd49 : reg49 <= hold_reg;  // F18A select 30 lines 
             6'd63 : mode9938 <= hold_reg[0];    // EPEP BUGBUG enable 9938 with register 63 bit 0
             endcase
           end
@@ -1005,7 +1019,8 @@ end
               char_addr_reload <= char_addr;
             end
             ypos <= ypos + 1;
-            if(ypos == 192) begin
+      
+            if(ypos == last_scanline) begin
               blanking <= 1'b1;
               refresh_state <= wait_frame;
               stat_reg0[7] <= 1'b1; // make VDP interrupt pending
