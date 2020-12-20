@@ -444,8 +444,8 @@ module top_ulx3s
   wire serloader_tx;
   wire tms9902_tx;
   
-  `define SERIAL_TO_TMS9902
-  // `define SERIAL_TO_ESP
+  // `define SERIAL_TO_TMS9902
+  `define SERIAL_TO_ESP
   `ifndef SERIAL_TO_ESP
     `ifdef SERIAL_TO_TMS9902
       // Here our serial traffic goes to TMS9902
@@ -467,7 +467,7 @@ module top_ulx3s
   `endif
 
 `ifndef SERIAL_TO_TMS9902  
-  wire tms9902_rx = gp[26];   // receive from FTDI chip
+  wire tms9902_rx = gp[0]; // pins changed for TIPI gp[26];   // receive from FTDI chip
   assign gp_27 = tms9902_tx;
 `endif
   // wire serloader_rx = gp[26];     // serloader UART receive GPIO_3;

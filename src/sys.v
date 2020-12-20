@@ -102,6 +102,10 @@ module sys
   reg [31:0] debug_addr;
   wire RX = tms9902_rx; 
 
+  wire f9_pressed;              // High when F9 is pressed. Used to enter setup mode.
+  reg  f9_int_pending = 1'b0;   // High when interrupt request pending from F9 key
+  reg  f9_bios = 1'b0;          // High if setup BIOS (ROM page) is mapped in.
+
  //-------------------------------------------------------------------
  // Chip select generation
  //-------------------------------------------------------------------
@@ -116,6 +120,7 @@ module sys
   wire sams_cs = (ab[15:13] == 3'b010) && sams_enabled; // SAMS chip select in memory space
   wire sams_cru_cs = ab[15:8] == 8'h1E; // SAMS chip select in CRU space
   wire mem_window_cs = ab[15:8] == 8'h85;
+  wire rom_8k_cs = ab[15:13] == 3'b000;   // 8K ROM area in the bottom of address space
  //-------------------------------------------------------------------
 
   reg [15:0] mem_window_reg;
@@ -171,7 +176,7 @@ module sys
  wire n_int_req;
  wire int_req = !n_int_req;
  // reg int_req = 1'b0;
- reg [3:0] ic03 = 4'd1;
+ reg [3:0] ic03 = f9_int_pending ? 4'd2 : 4'd1; // Interrupt level 2 when F9 is pushed.
  wire int_ack;
  wire holda;
  wire stuck;
@@ -530,12 +535,15 @@ tms9918 vdp(
   wire [22:0] x_tipi_dsr_addr = {9'b0000_0011_0, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM at 30000
   wire [22:0] x_window_addr   = {mem_window_reg, ab[7:1] };         // A window to all memory, 256 bytes at 8500
   wire [22:0] x_sams_addr     = {4'b0001, sams_addr_out[7:0], ab[11:1] }; // SAMS memory at 1 Megabyte
+  wire [22:0] x_bios_addr     = {11'b0000_0010_000 , ab[12:1] };    // 8K BIOS at 20000 
   
   always @(posedge clk)
   begin
     if(cpu_reset) begin
       cart_page <= 8'd0;
       mem_window_reg <= 16'd0;
+      f9_int_pending <= 1'b0;
+      f9_bios <= 1'b0;
     end else begin
       if (cartridge_cs && cpu_wr_rq) begin
         // write to cartride area. Store the page value from the ADDRESS bus.
@@ -547,13 +555,13 @@ tms9918 vdp(
       end
     end
   end
-  
 
   wire [22:0] xaddr_bus = grom_selected ? x_grom_addr : 
                           cartridge_cs  ? x_cart_addr :
                           tipi_cs       ? x_tipi_dsr_addr : 
                           mem_window_cs ? x_window_addr :
                           sams_area_cs  ? x_sams_addr :
+                   rom_8k_cs && f9_bios ? x_bios_addr : // When BIOS ROM paged in
                                           x_cpu_addr;
 
   // The code below does not seem to synthesize properly with yosys
@@ -676,6 +684,7 @@ tms9918 vdp(
       .ps2clk(ps2clk), .ps2data(ps2dat), 
       .line_sel(tms9901_out[4:2]), .keyline(ps2_keyline),
       .f1_pressed(f1_pressed),
+      .f9_pressed(f9_pressed),
       .cursor_keys_pressed(cursor_keys_pressed)
       );
 

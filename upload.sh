@@ -2,7 +2,7 @@
 # Shell script to move bitstream file to the ULX3S board.
 # EP 2020-12-05
 
-ftp 192.168.0.152 << EOT
+ftp $1 << EOT
 
 cd /sd/ti99_4a/bitstreams
 pwd
