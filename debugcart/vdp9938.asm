@@ -149,7 +149,11 @@ GO:
         ; Display finally base address of HEXTEXT
         LI R0,HEXTEXT
         BL @HEX_R0
-
+        ; One more test, with single negative byte, to see sign extension
+        LI R1,TEST82
+        CLR R5
+        DATA >389       ; MOVU *R1,R0
+        BL @HEX_R0
 
 ; Wait a little bit
         LI R1,250
@@ -220,5 +224,7 @@ VDPMODE BYTE 0,>04  ; 04=80 columns mode >00
 VDPTEXT TEXT 'HELLO'
         BYTE 0,0,0
 HEXTEXT TEXT '0123456789ABCDEF '
+        EVEN
+TEST82  BYTE >82,0
 
         END MAIN

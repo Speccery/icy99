@@ -1076,7 +1076,7 @@ begin
             // MOVU instruction
             do_movu00: begin
                     // Read source address from register.
-                    gpl_word_flag = rd_dat[8];          // From R5
+                    gpl_word_flag = |rd_dat[15:8];         // From R5
                     arg1 <= { 1'b0, w };
                     arg2 <= { 12'h000, ir[2:0], 1'b0 };    // One of registers 0..7
                     ope <= alu_add;
@@ -1101,8 +1101,10 @@ begin
             do_movu1: begin
                     // Now we have the read data in rd_dat.
                     // If this is a read byte operation, we are done, just need to shift around the data.
+                    // NOTE: The right shift is SRA, so ARITHMETIC SHIFT.
                     // If this is a read word operation, we need to done one more read operation.
-                    wr_dat <= gpl_word_flag ? read_byte_aligner : { 8'h00, read_byte_aligner[15:8] };
+                    wr_dat <= gpl_word_flag ? read_byte_aligner : 
+                        { {8{read_byte_aligner[15]}}, read_byte_aligner[15:8] };
                     if (gpl_word_flag) begin
                         ea <= alu_result;
                         cpu_state <= do_alu_read;
