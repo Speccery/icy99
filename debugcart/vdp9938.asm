@@ -4,7 +4,7 @@
 * VDP9938.ASM
 *
 * Try out the VDP9938 registers.
-g
+
        IDT  'VDP9938'
         
 VDPWD  EQU  >8C00             * VDP write data
@@ -94,8 +94,65 @@ GO:
         CI   R3,30
         JNE GO
 
+; Test the new CPU instruction MOVU and see what happens.
+; First write some hex test stuff
+        LI  R0,20
+        BL  @SETUPVDPA
+        LI  R0,0
+        BL  @HEX_R0
+        LI  R0,>DEAD
+        BL  @HEX_R0
+        LI  R0,>AA55
+        BL  @HEX_R0
+
+; Go to next line and test MOVU
+        LI  R0,100
+        BL  @SETUPVDPA
+        LI  R3,HEXTEXT
+        LI  R5,0        ; Byte operations
+        DATA >038B      ; MOVU *R3,R0
+        BL   @HEX_R0
+        INC  R3
+        DATA >38B       ; MOVU *R3,R0
+        BL   @HEX_R0
+        INC  R3
+        DATA >38B       ; MOVU *R3,R0
+        BL   @HEX_R0
+
+        LI  R5,>100     ; Word operations
+        DATA >38B       ; MOVU *R3,R0
+        BL  @HEX_R0
+        INC R3
+        DATA >38B       ; MOVU *R3,R0
+        BL  @HEX_R0
+        INC R3
+        DATA >38B       ; MOVU *R3,R0
+        BL  @HEX_R0
+        INC R3
+        DATA >38B       ; MOVU *R3,R0
+        BL  @HEX_R0
+
+        LI  R2,':'*256
+        MOVB R2,@VDPWD
+
+        ; test MOVU *R0,R0
+        LI  R0,HEXTEXT+9
+        DATA >388
+        BL  @HEX_R0
+        ; test MOVU *R1,R0
+        LI  R1,HEXTEXT+10
+        DATA >389
+        MOV R1,R8       ; Save to R8, since HEX_R0 will mess up R1
+        BL @HEX_R0
+        MOV R8,R0
+        BL @HEX_R0
+        ; Display finally base address of HEXTEXT
+        LI R0,HEXTEXT
+        BL @HEX_R0
+
+
 ; Wait a little bit
-        LI R1,50
+        LI R1,250
 LP2:    CLR R2
 LP1:    DEC R2
         JNE LP1
@@ -104,6 +161,25 @@ LP1:    DEC R2
 
 ; Jump back to ROM
         BLWP @0
+
+HEX_R0: ; Display contents of R0 in hex.
+        MOV     R0,R2
+        SRL     R2,12
+        MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+        MOV     R0,R2
+        SRL     R2,8
+        ANDI    R2,>000F
+        MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+        MOV     R0,R2
+        SRL     R2,4
+        ANDI    R2,>000F
+        MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+        MOV     R0,R2
+        ANDI    R2,>000F
+        MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+        MOVB    @HEXTEXT+16(R2),@VDPWD  ; write space
+        RT
+        
 
 COPY_FONTS:
         MOV R11,R9
@@ -143,6 +219,6 @@ VDPMODE BYTE 0,>04  ; 04=80 columns mode >00
     EVEN
 VDPTEXT TEXT 'HELLO'
         BYTE 0,0,0
-
+HEXTEXT TEXT '0123456789ABCDEF '
 
         END MAIN

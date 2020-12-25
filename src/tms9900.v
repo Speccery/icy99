@@ -86,7 +86,14 @@ localparam
     do_div4=7'd88,              do_div5=7'd89,
     do_process_branch=7'd90,    do_mul0=7'd91,
     do_mul1=7'd92,              do_mul2=7'd93,
-    do_mul3=7'd94,              do_mul4=7'd95 ;
+    do_mul3=7'd94,              do_mul4=7'd95,
+    // GPL macroinstruction
+    do_gpl0=7'd96,              do_gpl1=7'd97,
+    do_gpl2=7'd98,              do_gpl3=7'd99,
+    do_gpl4=7'd100,             do_movu0=7'd101,  // MOVU load unaligned byte/word
+    do_movu1=7'd102,            do_movu2=7'd103,
+    do_movu00=7'd104
+    ;
 
 localparam fetch_sub1=2'd1, fetch_sub2=2'd2, fetch_sub3=3'd3;
 
@@ -145,6 +152,8 @@ reg [15:0] ir;
 reg [4:0] shift_count;
 reg [15:0] pc_ir, pc_ir2;   
 reg executing_x = 1'b0;
+
+reg gpl_word_flag;   // GPL fetch byte/word operation selection bit.
 
 assign ir_out = ir;
 assign pc_ir_out = pc_ir;
@@ -367,6 +376,11 @@ begin
                 end
             do_write0:
                 begin 
+                    // GPL acceleration: if a store to R5 occurs
+                    // save bit 8 (LSB of high byte). This is the word/byte flag.
+                    if ({addr[15:1], 1'b0 } == 16'h83EA)
+                        gpl_word_flag <= wr_dat[8];
+
                     cpu_state <= do_write1; 
                     as <= 1'b0;
                     if (waits[7:1] == 7'd0)
@@ -466,11 +480,18 @@ begin
                             // Do all the shifts SLA(10) SRA(00) SRC(11) SRL(01), OPCODE:6 INS:2 C:4 W:4
                             shift_count <= { 1'b0, ir[7:4] };
                             cpu_state <= do_shifts0;
-                        end else if (ir == 16'h0380) begin // RTWP
+                        end else if (ir[15:4] == 12'h038) begin // RTWP, GPL addr decode
+                            // Opcodes here: 0380 = RTWP
+                            //               0381 = GPLS    - GPL operand address decode helper
+                            //               0388..038F = MOVU *RX,R0  - Unaligned load, X=0..7, width 8/16 bits depending on gpl_word_flag
                             arg1 <= { 1'b0, w };
-                            arg2 <= { 11'b0000_0000_000, 4'hD, 1'b0 };  // calculate of register 13 (WP)
+                            arg2 <= { 11'b0000_0000_000, 
+                                ir[3] == 1'b1 ? 4'h5 : 4'hD, // calculate addr of register 13 (WP)  or 5
+                                1'b0 };  
                             ope <= alu_add;	
-                            cpu_state <= do_rtwp0;
+                            // If this is RTWP, go to do_rtwp0, if it is GPLS, go to do_gpl0 via reading value of R13
+                            cpu_state <= ir[3:0] == 4'h0 ? do_rtwp0 : do_alu_read;
+                            cpu_state_next <= ir[3] == 1'b0 ? do_gpl0 : do_movu00;                  // We go here if this is GPL1 instruction
                         end else if (ir[15:8] == 8'h1D  || // SBO
                                 ir[15:8] == 8'h1E  || // SBZ
                                 ir[15:8] == 8'h1F)  // TB
@@ -760,7 +781,7 @@ begin
                         st[12] <= alu_flag_carry;
                         st[11] <= alu_flag_overflow;
                     end
-                    
+
                     if (alu_compare == 0) begin
                         wr_dat <= alu_result;	
                         cpu_state <= do_write;
@@ -967,6 +988,142 @@ begin
                     st <= rd_dat;			// ST from previous R15
                     cpu_state <= do_fetch;
                 end
+
+            //-----------------------------------------------------------
+            // GPL macroinstruction to decode GPL addresses. 
+            // Implements part of subroutine at ROM address 077A
+            //-----------------------------------------------------------
+            do_gpl0: begin
+                    // rd_dat is contents of R13. Do the MOVB *13,1 operation.
+                    // Since we know *13 points to GROM port don't bother with byte read.
+                    // We will just do a word read.
+                    ea <= rd_dat;
+                    addr <= rd_dat; as <= 1; rd <= 1; cpu_state <= do_read0;
+                    cpu_state_next <= do_gpl1;
+                end
+            do_gpl1: begin
+                    // Here rd_dat high byte is the data item we read from GROM.  
+                    // We need to write it to R1.
+                    // Let's combine five instructions to one cycle, if high bit is zero:
+                    //      JLT >07BA
+                    //      SRL 1,8
+                    //      AI 1,>8300
+                    //      CI 1,>837D
+                    //      JNE >07A8
+                    // We do effectively a three way branch, depending on the address byte read:
+                    //      Negative -> branch to addr modes II to V, R1 = byte read
+                    //      Positive: write to R1 the value >8300 + (R1 >> 8)
+                    //           case 1: equals to 7D: branch to write to character buffer; PC = >078A
+                    //           case 2: <> 7D: read from memory
+                    wr_dat <= rd_dat[15] ? rd_dat : { 8'h83, rd_dat[15:8] };
+                    reg_t  <= rd_dat[15] ? rd_dat : { 8'h83, rd_dat[15:8] };    // Store addr to reg_t so we don't need a new connection from wr_dat to ea.
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 11'b0000_0000_000, 4'h1, 1'b0 };  // calculate address of register 1
+                    ope  <= alu_add;
+                    cpu_state <= do_alu_write;
+                    if (rd_dat[15:8] == 8'h7D) begin
+                        // Continue with the write to character buffer routine.
+                        cpu_state_next <= do_fetch;
+                        pc <= 16'h078A;
+                    end else if (rd_dat[15]) begin
+                        // Continue with addressing modes II to V processing.
+                        cpu_state_next <= do_fetch;
+                        pc <= 16'h07BA;
+                    end else
+                        cpu_state_next <= do_gpl2; // Continue with read from scratchpad
+                end
+            do_gpl2: begin
+                    // Here read either a byte or word from scatchpad to R0.
+                    // To keep things simple, we read here just one byte, and if 
+                    // this becomes a word operation, we read another byte.
+                    // Address is in R1, i.e. wr_dat and reg_t. The word flag is in R5.8, which
+                    // is cached in this CPU in the gpl_word_flag register.
+                    // If it is a byte, it goes to the low byte of R0, zerofilling the high byte.
+                    ea <= reg_t;
+                    operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
+                    addr <= reg_t; as <= 1; rd <= 1; cpu_state <= do_read0;
+                    cpu_state_next <= do_gpl3; 	// return via read
+                    // Aso prepare for a potential word read, by calculating the address of next byte.
+                    arg1 <= { 1'b0, reg_t };
+                    arg2 <= 16'h1;
+                    ope  <= alu_add;
+                end
+            do_gpl3: begin
+                    // Now we have the read data in rd_dat.
+                    // If this is a read byte operation, we are done, just need to shift around the data.
+                    // If this is a read word operation, we need to done one more read operation.
+                    wr_dat <= gpl_word_flag ? read_byte_aligner : { 8'h00, read_byte_aligner[15:8] };
+                    if (gpl_word_flag) begin
+                        ea <= alu_result;
+                        cpu_state <= do_alu_read;
+                        cpu_state_next <= do_gpl4;
+                    end else begin
+                        cpu_state <= do_gpl4;
+                    end
+                end
+            do_gpl4: begin  // Write the result to R0.
+                    operand_word <= 1'b1;
+                    arg1 <= { 1'b0, w };
+                    arg2 <= 17'd0;
+                    ope <= alu_add;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_fetch;
+                    if (gpl_word_flag) begin
+                        // If we did read a word, we need to put the least significant byte in place.
+                        wr_dat[7:0] <= read_byte_aligner[15:8];
+                    end
+                end
+            // MOVU instruction
+            do_movu00: begin
+                    // Read source address from register.
+                    gpl_word_flag = rd_dat[8];          // From R5
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 12'h000, ir[2:0], 1'b0 };    // One of registers 0..7
+                    ope <= alu_add;
+                    cpu_state <= do_alu_read;
+                    cpu_state_next <= do_movu0;
+                end
+            do_movu0: begin
+                    // rd_dat is contents of source data pointer register. Read from there
+                    // one or two bytes to R0. The selection is based on gpl_word_flag.
+                    // To keep things simple, we read here just one byte, and if 
+                    // this becomes a word operation, we read another byte.
+                    // If it is a byte read, it goes to the low byte of R0, zerofilling the high byte.
+                    operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
+                    ea <= rd_dat;
+                    addr <= rd_dat; as <= 1; rd <= 1; cpu_state <= do_read0;
+                    cpu_state_next <= do_movu1; 	// return via read
+                    // Aso prepare for a potential word read, by calculating the address of next byte.
+                    arg1 <= { 1'b0, rd_dat };
+                    arg2 <= 16'h1;
+                    ope  <= alu_add;
+                end
+            do_movu1: begin
+                    // Now we have the read data in rd_dat.
+                    // If this is a read byte operation, we are done, just need to shift around the data.
+                    // If this is a read word operation, we need to done one more read operation.
+                    wr_dat <= gpl_word_flag ? read_byte_aligner : { 8'h00, read_byte_aligner[15:8] };
+                    if (gpl_word_flag) begin
+                        ea <= alu_result;
+                        cpu_state <= do_alu_read;
+                        cpu_state_next <= do_movu2;
+                    end else begin
+                        cpu_state <= do_movu2;
+                    end
+                end
+            do_movu2: begin  // Write the result to R0.
+                    operand_word <= 1'b1;
+                    arg1 <= { 1'b0, w };
+                    arg2 <= 16'd0;
+                    ope <= alu_add;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_fetch;
+                    if (gpl_word_flag) begin
+                        // If we did read a word, we need to put the least significant byte in place.
+                        wr_dat[7:0] <= read_byte_aligner[15:8];
+                    end
+                end
+            
                 
             //-----------------------------------------------------------
             // All shift instructions

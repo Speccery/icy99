@@ -16,6 +16,10 @@ cd /sd/ti99_4a/cart
 pwd
 lcd ../../debugcart
 put VDP9938.bin
+lcd ../roms
+cd /sd/ti99_4a/rom
+pwd
+put 99opt.bin
 bye
 EOT
 

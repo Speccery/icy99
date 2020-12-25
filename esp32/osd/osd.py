@@ -414,8 +414,10 @@ class osd:
     del s
     gc.collect()
 
-  def load_roms(self):
-    romfile = "/sd/ti99_4a/rom/994AROM.Bin"
+  def load_roms(self,rom=""):
+    romfile = rom
+    if(len(rom) == 0):
+      romfile = "/sd/ti99_4a/rom/994AROM.Bin"
     gromfile = "/sd/ti99_4a/grom/994AGROM.Bin"
     import ld_ti99_4a
     s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
@@ -432,6 +434,9 @@ class osd:
     s.reset_off()
     del s
     gc.collect()
+
+  def opt(self):
+    self.load_roms("/sd/ti99_4a/rom/99opt.bin")
 
   def save_mem(self, filename, addr,length):
     import ld_ti99_4a
