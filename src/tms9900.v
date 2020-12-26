@@ -1029,10 +1029,25 @@ begin
                         // Continue with addressing modes II to V processing.
                         cpu_state_next <= do_fetch;
                         pc <= 16'h07BA;
-                    end else
-                        cpu_state_next <= do_gpl2; // Continue with read from scratchpad
+                    end else begin
+                        cpu_state_next <= do_gpl2;
+                    end
                 end
             do_gpl2: begin
+                    rd_dat <= wr_dat;   // Contents of R1 which we just wrote.
+                    cpu_state <= do_movu0;
+/*                    
+                        // Use the tail of MOVU which has been tested by now to run the operation.
+                        // we continue with do_movu0, it expects the source address in rd_dat, so read it there.
+                        // Thus we read R1. We also rely on gpl_word_flag being set correctly.
+                        arg1 <= { 1'b0, w };
+                        arg2 <= { 11'd0, 4'h1, 1'b0 };    // R1
+                        ope <= alu_add;
+                        cpu_state <= do_alu_read;
+                        cpu_state_next <= do_movu0;
+*/
+
+/*                
                     // Here read either a byte or word from scatchpad to R0.
                     // To keep things simple, we read here just one byte, and if 
                     // this becomes a word operation, we read another byte.
@@ -1047,6 +1062,7 @@ begin
                     arg1 <= { 1'b0, reg_t };
                     arg2 <= 16'h1;
                     ope  <= alu_add;
+*/                    
                 end
             do_gpl3: begin
                     // Now we have the read data in rd_dat.
@@ -1076,7 +1092,7 @@ begin
             // MOVU instruction
             do_movu00: begin
                     // Read source address from register.
-                    gpl_word_flag = |rd_dat[15:8];         // From R5
+                    gpl_word_flag = rd_dat[8]; // |rd_dat[15:8];         // From R5
                     arg1 <= { 1'b0, w };
                     arg2 <= { 12'h000, ir[2:0], 1'b0 };    // One of registers 0..7
                     ope <= alu_add;

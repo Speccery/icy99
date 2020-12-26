@@ -31,8 +31,8 @@ int main(int argc,char *argv[]) {
     fclose(src); src=NULL;
 
     // Modify ROM.
-//    modify(rom, 0x77a  , 0x0381);  // Insert custom instruction.
-//    modify(rom, 0x77a+2, 0x045B); // B *R11
+    modify(rom, 0x77a  , 0x0381);  // Insert custom instruction. GPLS
+    modify(rom, 0x77a+2, 0x045B); // B *R11
 
     // Patch 0x07A8 routine with new MOVU instruction.
     // Note that the code jumps into this routine from multiple places, also to address 0x07AA.
