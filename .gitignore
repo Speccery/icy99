@@ -33,7 +33,5 @@ bitstreams
 src/sim-tms9918_tb.lxt
 roms/994AGROM.Bin
 roms/994aROM.Bin
-debugcart/vdp9938.lst
 debugcart/vdp9938.rpk
-debugcart/vdpload.lst
 debugcart/vdpload.rpk

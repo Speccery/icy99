@@ -88,11 +88,26 @@ localparam
     do_mul1=7'd92,              do_mul2=7'd93,
     do_mul3=7'd94,              do_mul4=7'd95,
     // GPL macroinstruction
-    do_gpl0=7'd96,              do_gpl1=7'd97,
-    do_gpl2=7'd98,              do_gpl3=7'd99,
-    do_gpl4=7'd100,             do_movu0=7'd101,  // MOVU load unaligned byte/word
-    do_movu1=7'd102,            do_movu2=7'd103,
-    do_movu00=7'd104
+    do_gpl0=7'd96,              
+    do_gpl1=7'd97,
+    do_gpl2=7'd98,              
+    do_gpl_addr0=7'd99,
+    do_gpl_addr1=7'd100,      
+    do_gpl_addr2=7'd101,
+    do_gpl_addr3=7'd102,
+    do_gpl_addr_07D4=7'd103,
+    do_gpl_addr_07E2=7'd104,
+    do_gpl_addr_07E4=7'd105,
+    do_gpl_addr_07E4_0=7'd106,
+    // MOVU load unaligned byte/word
+    do_movu00=7'd107,  
+    do_movu01=7'd108,           
+    do_movu02=7'd109,
+    // MOVU subroutine
+    do_movu_ea= 7'd110,          
+    do_movu_ea1=7'd111,
+    do_movu_ea2=7'd112,
+    do_gpl_780=7'd113
     ;
 
 localparam fetch_sub1=2'd1, fetch_sub2=2'd2, fetch_sub3=3'd3;
@@ -139,7 +154,7 @@ reg  [15:0] ea, rd_dat;
 reg  [15:0] st=0, pc, w;
 reg cruclk_internal;
 reg i_am_xop;
-reg [6:0] cpu_state, cpu_state_next, cpu_state_operand_return;
+reg [6:0] cpu_state, cpu_state_next, cpu_state_operand_return, cpu_state_gpl_return;
 reg read_to_arg2, set_ea_from_alu, set_dual_op_flags;
 reg [15:0] wr_dat;
 reg set_int_priority;
@@ -154,6 +169,8 @@ reg [15:0] pc_ir, pc_ir2;
 reg executing_x = 1'b0;
 
 reg gpl_word_flag;   // GPL fetch byte/word operation selection bit.
+reg gpl_word_flag_save; // Store gpl_word_flag_save.
+reg [7:0] gpl_amod;
 
 assign ir_out = ir;
 assign pc_ir_out = pc_ir;
@@ -201,6 +218,11 @@ end
 
 reg [15:0] dest_reg_addr;
 reg [5:0] operand_mode;
+
+//------------------------------------------------------------------------
+// GPL scratchpad address generator from byte read from GROM.
+//------------------------------------------------------------------------
+wire [15:0] scratchpad_addr = { 8'h83, rd_dat[15:8] };
 
 //------------------------------------------------------------------------
 //  Divider / Multiplier as a separate entity
@@ -998,10 +1020,19 @@ begin
                     // Since we know *13 points to GROM port don't bother with byte read.
                     // We will just do a word read.
                     ea <= rd_dat;
+                    reg_t2 <= rd_dat;   // Store the contents of R13 to t2
                     addr <= rd_dat; as <= 1; rd <= 1; cpu_state <= do_read0;
                     cpu_state_next <= do_gpl1;
                 end
             do_gpl1: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl1: got %02X from GROM", rd_dat[15:8]);
+                    if(rd_dat[15]) begin
+                        $display("do_gpl1: index=%1d V=%1d I=%1d", rd_dat[14], rd_dat[13], rd_dat[12]);
+                    end else begin 
+                        $display("do_gpl1: short direct access 83%02X", rd_dat[6:0]);
+                    end
+                    `endif
                     // Here rd_dat high byte is the data item we read from GROM.  
                     // We need to write it to R1.
                     // Let's combine five instructions to one cycle, if high bit is zero:
@@ -1015,78 +1046,174 @@ begin
                     //      Positive: write to R1 the value >8300 + (R1 >> 8)
                     //           case 1: equals to 7D: branch to write to character buffer; PC = >078A
                     //           case 2: <> 7D: read from memory
-                    wr_dat <= rd_dat[15] ? rd_dat : { 8'h83, rd_dat[15:8] };
-                    reg_t  <= rd_dat[15] ? rd_dat : { 8'h83, rd_dat[15:8] };    // Store addr to reg_t so we don't need a new connection from wr_dat to ea.
+                    gpl_amod <= rd_dat[15:8];   // GPL address mode byte
+                    reg_t <= rd_dat;
+                    arg2 <= scratchpad_addr;
+                    ope <= alu_load2;
+
+                    if (rd_dat[15]) begin
+                        // Continue with addressing modes II to V processing.
+                        cpu_state <= do_gpl_addr0; // do_fetch;
+                        // pc <= 16'h07BA;
+                    end else begin
+                        cpu_state <= do_gpl_780;
+                    end
+                end
+            do_gpl_780: begin // write data from alu_result to R1.
+                    wr_dat <= alu_result;
+                    reg_t <= alu_result;
                     arg1 <= { 1'b0, w };
                     arg2 <= { 11'b0000_0000_000, 4'h1, 1'b0 };  // calculate address of register 1
                     ope  <= alu_add;
                     cpu_state <= do_alu_write;
-                    if (rd_dat[15:8] == 8'h7D) begin
+                    if (alu_result == 16'h837D) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_780: source address %04X, going to ROM 078A", alu_result);
+                        `endif
                         // Continue with the write to character buffer routine.
                         cpu_state_next <= do_fetch;
                         pc <= 16'h078A;
-                    end else if (rd_dat[15]) begin
-                        // Continue with addressing modes II to V processing.
-                        cpu_state_next <= do_fetch;
-                        pc <= 16'h07BA;
                     end else begin
-                        cpu_state_next <= do_gpl2;
+                        `ifdef SIMULATE
+                        $display("do_gpl_780: going to MOVU from %04X", alu_result);
+                        `endif
+                        cpu_state_next <= do_gpl2;  // direct short address
                     end
                 end
             do_gpl2: begin
-                    rd_dat <= wr_dat;   // Contents of R1 which we just wrote.
-                    cpu_state <= do_movu0;
-/*                    
-                        // Use the tail of MOVU which has been tested by now to run the operation.
-                        // we continue with do_movu0, it expects the source address in rd_dat, so read it there.
-                        // Thus we read R1. We also rely on gpl_word_flag being set correctly.
-                        arg1 <= { 1'b0, w };
-                        arg2 <= { 11'd0, 4'h1, 1'b0 };    // R1
-                        ope <= alu_add;
-                        cpu_state <= do_alu_read;
-                        cpu_state_next <= do_movu0;
-*/
-
-/*                
-                    // Here read either a byte or word from scatchpad to R0.
-                    // To keep things simple, we read here just one byte, and if 
-                    // this becomes a word operation, we read another byte.
-                    // Address is in R1, i.e. wr_dat and reg_t. The word flag is in R5.8, which
-                    // is cached in this CPU in the gpl_word_flag register.
-                    // If it is a byte, it goes to the low byte of R0, zerofilling the high byte.
-                    ea <= reg_t;
-                    operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
-                    addr <= reg_t; as <= 1; rd <= 1; cpu_state <= do_read0;
-                    cpu_state_next <= do_gpl3; 	// return via read
-                    // Aso prepare for a potential word read, by calculating the address of next byte.
-                    arg1 <= { 1'b0, reg_t };
-                    arg2 <= 16'h1;
-                    ope  <= alu_add;
-*/                    
+                    // Use the tail of MOVU to do the fetch store to R0.
+                    ea <= reg_t;            // Address to read from.
+                    cpu_state <= do_movu_ea;
+                    cpu_state_gpl_return <= do_movu02;
                 end
-            do_gpl3: begin
-                    // Now we have the read data in rd_dat.
-                    // If this is a read byte operation, we are done, just need to shift around the data.
-                    // If this is a read word operation, we need to done one more read operation.
-                    wr_dat <= gpl_word_flag ? read_byte_aligner : { 8'h00, read_byte_aligner[15:8] };
-                    if (gpl_word_flag) begin
-                        ea <= alu_result;
-                        cpu_state <= do_alu_read;
-                        cpu_state_next <= do_gpl4;
+            // GPL address mode decoding continues
+            do_gpl_addr0: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr0: second fetch from GROM ea=%04X", ea);
+                    `endif
+                    // Do second fetch from GROM. ea still contains value of R13.
+                    addr <= ea; as <= 1; rd <= 1; cpu_state <= do_read0;
+                    cpu_state_next <= do_gpl_addr1;
+                end
+            do_gpl_addr1: begin
+                    // Now rd_dat is the next byte from GROM. High byte of reg_t is previous byte.
+                    if(gpl_amod[3:0] == 4'hf) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr1: got %02X going for extended range", rd_dat[15:8]);
+                        `endif
+                        // extended address range. Need to read the new low byte, since we're going with full 16-bit address.
+                        reg_t[15:8] <= rd_dat[15:8]; // We got the high byte here.
+                        addr <= ea; as <= 1; rd <= 1; cpu_state <= do_read0;    // ea still R13
+                        cpu_state_next <= do_gpl_addr2;
                     end else begin
-                        cpu_state <= do_gpl4;
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr1: got %02X from GROM going for 12 bit address", rd_dat[15:8]);
+                        `endif
+                        // no extended range. Mask the bottom 12 bits. We don't go through ALU, so this is a bit messy.
+                        reg_t <= { 4'h0, reg_t[11:8], rd_dat[15:8] };
+                        cpu_state <= do_gpl_addr3;
                     end
                 end
-            do_gpl4: begin  // Write the result to R0.
-                    operand_word <= 1'b1;
-                    arg1 <= { 1'b0, w };
-                    arg2 <= 17'd0;
+            do_gpl_addr2: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr2: extended addressing got %02X as low byte", rd_dat[15:8]);
+                    `endif
+                    // extended address low byte processing. Now rd_dat is next byte from GROM.
+                    reg_t[7:0] <= rd_dat[15:8]; // put low byte in place
+                    cpu_state <= do_gpl_addr3;
+                end
+            do_gpl_addr3: begin
+                    // Now reg_t is the 16-bit address of the operand.
+                    gpl_word_flag_save <= gpl_word_flag; // save gpl_word_flag
+                    // Check for indexed access.
+                    if(gpl_amod[6] == 1'b0) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr3: no index, passing reg_t %04X", reg_t);
+                        `endif
+                        // No index. pass reg_t through the ALU.
+                        arg2 <= reg_t;
+                        ope <= alu_load2;
+                        cpu_state <= do_gpl_addr_07E4;
+                    end else begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr3: have index, going to read from %04X", ea);
+                        `endif
+                        // We need to deal with an index. Read it from GROM. ea still points to GROM port.
+                        addr <= ea; as <= 1; rd <= 1; cpu_state <= do_read0; 
+                        cpu_state_next <= do_gpl_addr_07D4;
+                    end
+                end
+            do_gpl_addr_07D4: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_07D4: got index to %04X", scratchpad_addr);
+                    `endif
+                    // Now rd_dat is the index (high byte). We need to make an unaligned load from scratchpad
+                    // from the address { 'h83, rd_dat[15:8] }.
+                    ea <= scratchpad_addr;
+                    gpl_word_flag <= 1'b1;      // Set temporarily for unaligned word fetch.
+                    cpu_state <= do_movu_ea;    // Make an unaligned word read from "ea".
+                    cpu_state_gpl_return <= do_gpl_addr_07E2;
+                end
+            do_gpl_addr_07E2: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_07E2: got index wr_dat %04X", wr_dat);
+                    `endif
+                    // Now wr_dat = contents of the index. Add it to the address provided as operand.
+                    arg1 <= { 1'b0, wr_dat };   // EPEP - FIXME - data path from wr_dat to arg1. Consider rearranging.
+                    arg2 <= reg_t;
                     ope <= alu_add;
+                    cpu_state <= do_gpl_addr_07E4;
+                end
+            do_gpl_addr_07E4: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_07E4: write %04X to R1", alu_result);
+                    `endif
+                    wr_dat <= alu_result;
+                    reg_t <= alu_result;
+                    // Here the source address appears on ALU output.
+                    // There may be an indirection or VDP access.
+                    gpl_word_flag <= gpl_word_flag_save;
+                    // Write the current address to R1 in order to keep track of things and ease debugging. 
+                    // This is strictly not necessary if there is indirection or VDP access, since we overwrite R1.
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 11'b0000_0000_000, 4'h1, 1'b0 };  // calculate address of register 1
+                    ope  <= alu_add;
                     cpu_state <= do_alu_write;
-                    cpu_state_next <= do_fetch;
-                    if (gpl_word_flag) begin
-                        // If we did read a word, we need to put the least significant byte in place.
-                        wr_dat[7:0] <= read_byte_aligner[15:8];
+                    cpu_state_next <= do_gpl_addr_07E4_0;
+                end
+            do_gpl_addr_07E4_0: begin
+                    if(gpl_amod[5:4] == 2'b00) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_07E4_0: continue with do_movu_ea");
+                        `endif
+                        // If no VDP and direct access, we continue with existing flow. 
+                        arg1 <= { 1'b0, reg_t };
+                        arg2 <= 16'h8300;
+                        ope <= alu_add;
+                        cpu_state <= do_gpl_780;
+                    end else if(gpl_amod[5] == 1'b1) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_07E4_0: VDP case, setting pc=07E0");
+                        `endif
+                        // We have VDP access case. Jump back to ROM to handle it.
+                        // However, ROM code expects R10 to contain a shifted version of the first
+                        // addressing mode byte from GROM. At this point the only necessary flag to
+                        // test is indirection. Copy the indirection flag to the Zero flag of the CPU,
+                        // and jump to ROM address 07E0 to handle it and INCT R4. The original 
+                        // ROM code must be changed slightly to first test zero flag, and then
+                        // INCT R4 in any case, and then do the indirection if needed.
+                        st[13] <= gpl_amod[4];  // Indirection flag.
+                        cpu_state <= do_fetch;
+                        pc <= 16'h07E0;
+                    end else begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_07E4_0: indirect from CPU RAM pc=0816");
+                        `endif
+                        // Here we have the case where we know that we have indirection and CPU RAM.
+                        // Since this code is quite complex as it is, jump to ROM 0816 to handle that case.
+                        // Once the code this far works, we can implement the rest of the system.
+                        cpu_state <= do_fetch;
+                        pc <= 16'h816;
                     end
                 end
             // MOVU instruction
@@ -1097,24 +1224,42 @@ begin
                     arg2 <= { 12'h000, ir[2:0], 1'b0 };    // One of registers 0..7
                     ope <= alu_add;
                     cpu_state <= do_alu_read;
-                    cpu_state_next <= do_movu0;
+                    cpu_state_next <= do_movu01;
                 end
-            do_movu0: begin
+            do_movu01: begin
                     // rd_dat is contents of source data pointer register. Read from there
                     // one or two bytes to R0. The selection is based on gpl_word_flag.
-                    // To keep things simple, we read here just one byte, and if 
-                    // this becomes a word operation, we read another byte.
-                    // If it is a byte read, it goes to the low byte of R0, zerofilling the high byte.
-                    operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
                     ea <= rd_dat;
-                    addr <= rd_dat; as <= 1; rd <= 1; cpu_state <= do_read0;
-                    cpu_state_next <= do_movu1; 	// return via read
+                    cpu_state <= do_movu_ea;
+                    cpu_state_gpl_return <= do_movu02;
+                end
+            do_movu02: begin
+                    // Write the result to R0 and continue with fetching next instruction.
+                    operand_word <= 1'b1;
+                    arg1 <= { 1'b0, w };
+                    arg2 <= 16'd0;
+                    ope <= alu_add;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_fetch;
+                end
+            // Subroutine to perform a MOVU from ea register address. The data is returned in wr_dat.
+            // NOTE: return state must be stored in cpu_state_gpl_return!
+            // Read one or two bytes to wr_dat, based on gpl_word_flag.
+            // To keep things simple, we read here just one byte, and if this becomes a word operation, we read another byte.
+            // If it is a byte read, it goes to the low byte of wr_dat, with sign extension the high byte.
+            do_movu_ea: begin      
+                    `ifdef SIMULATE
+                    $display("do_movu_ea, ea=%04X", ea);
+                    `endif
+                    operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
+                    addr <= ea; as <= 1; rd <= 1; cpu_state <= do_read0;
+                    cpu_state_next <= do_movu_ea1; 	// return via read
                     // Aso prepare for a potential word read, by calculating the address of next byte.
-                    arg1 <= { 1'b0, rd_dat };
+                    arg1 <= { 1'b0, ea };
                     arg2 <= 16'h1;
                     ope  <= alu_add;
                 end
-            do_movu1: begin
+            do_movu_ea1: begin
                     // Now we have the read data in rd_dat.
                     // If this is a read byte operation, we are done, just need to shift around the data.
                     // NOTE: The right shift is SRA, so ARITHMETIC SHIFT.
@@ -1124,24 +1269,25 @@ begin
                     if (gpl_word_flag) begin
                         ea <= alu_result;
                         cpu_state <= do_alu_read;
-                        cpu_state_next <= do_movu2;
+                        cpu_state_next <= do_movu_ea2;
                     end else begin
-                        cpu_state <= do_movu2;
+                        cpu_state <= do_movu_ea2;
                     end
                 end
-            do_movu2: begin  // Write the result to R0.
-                    operand_word <= 1'b1;
-                    arg1 <= { 1'b0, w };
-                    arg2 <= 16'd0;
-                    ope <= alu_add;
-                    cpu_state <= do_alu_write;
-                    cpu_state_next <= do_fetch;
+            do_movu_ea2: begin  
+                    `ifdef SIMULATE
+                     if (gpl_word_flag)
+                        $display("do_movu_ea2, result WORD %04X", {wr_dat[15:8], read_byte_aligner[15:8]} );
+                    else
+                        $display("do_movu_ea2, result BYTE %02X", wr_dat[15:8] );
+                    `endif
+                    // The final step of the do_movu_ea subroutine.
                     if (gpl_word_flag) begin
                         // If we did read a word, we need to put the least significant byte in place.
                         wr_dat[7:0] <= read_byte_aligner[15:8];
                     end
+                    cpu_state <= cpu_state_gpl_return;
                 end
-            
                 
             //-----------------------------------------------------------
             // All shift instructions

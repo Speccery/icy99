@@ -207,6 +207,31 @@ COPY_FONTS:
         JNE     -!ch2
         B       *R9
 
+        TEXT   'MARKER'
+; test code to go to ROM 07E0 to handle VDP indirect / direct access using my custom instruction.
+label_07e0:
+        JEQ     do_indirect
+do_job:        
+        INCT    R4
+        MOVB    @>83E3,*R15         ; Write address VDP
+        MOVB    R1,*R15
+        SLA     R0,8
+        MOVB    @>FBFE(R15),R0      ; Data in R0
+        MOVB    R5,R5              ; Word?
+        JEQ     do_byte
+        MOVB    @>FBFE(R15),@>83E1  ; 2nd byte in R
+        B       *R11
+do_byte:
+        SRA     R0,8
+        B       *R11
+
+do_indirect:
+        MOVB @>8300(R1),R0          ; Fetch value
+        MOVB @>8301(R1),@>83E1
+        MOV  R0,R1                  ; Value in R1
+        jmp  do_job 
+
+
 VDPMODE BYTE 0,>04  ; 04=80 columns mode >00
         BYTE 1,>F0
         BYTE 2,>00

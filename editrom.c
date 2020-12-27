@@ -34,6 +34,18 @@ int main(int argc,char *argv[]) {
     modify(rom, 0x77a  , 0x0381);  // Insert custom instruction. GPLS
     modify(rom, 0x77a+2, 0x045B); // B *R11
 
+    // Also need to insert new code to 07E0 to handle VDP direct / indirect cases.
+    {
+        FILE *f = fopen("debugcart/VDP9938.bin", "rb");
+        if(!f) {
+            fprintf(stderr, "unable to open VDP file\n");
+        } else {
+            fseek(f, 0x1E4, SEEK_SET);
+            fread(rom+0x7E0, 1, 0x212-0x1E4, f);
+            fclose(f);
+        }
+    }
+
     // Patch 0x07A8 routine with new MOVU instruction.
     // Note that the code jumps into this routine from multiple places, also to address 0x07AA.
     // So copy part of the original routine from 0x7A8 to 0x1346 (cassette write) and
