@@ -6,7 +6,7 @@ ftp $1 << EOT
 
 cd /sd/ti99_4a/bitstreams
 pwd
-lcd i9900
+lcd Eriks-MBP.lan
 put ti994a_ulx3s.bit
 lcd ..
 cd /

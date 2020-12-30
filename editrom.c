@@ -34,8 +34,25 @@ int main(int argc,char *argv[]) {
     modify(rom, 0x77a  , 0x0381);  // Insert custom instruction. GPLS
     modify(rom, 0x77a+2, 0x045B); // B *R11
 
+/*
+    modify(rom, 0x008E, 0x0381);    // GPLS
+    modify(rom, 0x0090, 0x1000);    // NOP
+
+    modify(rom, 0x00BC, 0x0381);    // GPLS
+    modify(rom, 0x00BE, 0x1000);    // NOP
+
+    modify(rom, 0x0624, 0x0381);    // GPLS
+    modify(rom, 0x0626, 0x1000);    // NOP
+
+    modify(rom, 0x058E, 0x4C5);     // CLR R5
+    modify(rom, 0x0590, 0x0381);    // GPLS
+
+    modify(rom, 0x0596, 0x4C5);     // CLR R5
+    modify(rom, 0x0598, 0x0381);    // GPLS
+*/
+
     // Also need to insert new code to 07E0 to handle VDP direct / indirect cases.
-    {
+    if (0) {
         FILE *f = fopen("debugcart/VDP9938.bin", "rb");
         if(!f) {
             fprintf(stderr, "unable to open VDP file\n");

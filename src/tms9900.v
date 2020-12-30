@@ -117,7 +117,9 @@ localparam
     do_gpl_addr_802_0=7'd119,
     do_gpl_addr_802_1=7'd120,
     do_gpl_inct_R4=7'd121,
-    do_gpl_inct_R4_0=7'd122
+    do_gpl_inct_R4_0=7'd122,
+    do_gpl_077E=7'd123,
+    do_gosuble=7'd124
     ;
 
 localparam fetch_sub1=2'd1, fetch_sub2=2'd2, fetch_sub3=3'd3;
@@ -514,16 +516,22 @@ begin
                             cpu_state <= do_shifts0;
                         end else if (ir[15:4] == 12'h038) begin // RTWP, GPL addr decode
                             // Opcodes here: 0380 = RTWP
-                            //               0381 = GPLS    - GPL operand address decode helper
+                            //               0381 = GPLS    - GPLS operand address decode helper
+                            //               0382 = GPLS2   - Routine from 077E
                             //               0388..038F = MOVU *RX,R0  - Unaligned load, X=0..7, width 8/16 bits depending on gpl_word_flag
                             arg1 <= { 1'b0, w };
                             arg2 <= { 11'b0000_0000_000, 
-                                ir[3] == 1'b1 ? 4'h5 : 4'hD, // calculate addr of register 13 (WP)  or 5
+                                ir[3] == 1'b1 ? 4'h5 :          // MOVU: register 5
+                                    ir[2:0] == 3'b010 ? 4'h1 :  // GPLS2: register 1
+                                    4'hD,                       // GPLS: register 13
                                 1'b0 };  
                             ope <= alu_add;	
-                            // If this is RTWP, go to do_rtwp0, if it is GPLS, go to do_gpl0 via reading value of R13
+                            // If this is RTWP, go to do_rtwp0, if it is GPLS/GPLS2/MOVU, go to GPL routines via reading a register
                             cpu_state <= ir[3:0] == 4'h0 ? do_rtwp0 : do_alu_read;
-                            cpu_state_next <= ir[3] == 1'b0 ? do_gpl0 : do_movu00;                  // We go here if this is GPL1 instruction
+                            // Setup cpu_state_next for GPL instructions.
+                            cpu_state_next <= ir[3] == 1'b1 ? do_movu00 :   // MOVU
+                                     ir[2:0] == 3'b010 ? do_gpl_077E :      // GPLS2
+                                     do_gpl0 ;                              // GPLS
                         end else if (ir[15:8] == 8'h1D  || // SBO
                                 ir[15:8] == 8'h1E  || // SBZ
                                 ir[15:8] == 8'h1F)  // TB
@@ -1030,7 +1038,6 @@ begin
                     // Since we know *13 points to GROM port don't bother with byte read.
                     // We will just do a word read.
                     ea <= rd_dat;
-                    reg_t2 <= rd_dat;   // Store the contents of R13 to t2
                     addr <= rd_dat; as <= 1; rd <= 1; cpu_state <= do_read0;
                     cpu_state_next <= do_gpl1;
                 end
@@ -1082,8 +1089,10 @@ begin
                         $display("do_gpl_780: source address %04X, going to ROM 078A", alu_result);
                         `endif
                         // Continue with the write to character buffer routine.
+                        //-- cpu_state_next <= do_gosuble;  
+                        //-- wr_dat <= pc;		// old PC as in BL instruction
                         cpu_state_next <= do_fetch;
-                        pc <= 16'h078A;
+                        pc <= 16'h078A;     // Follow up routine.
                     end else begin
                         `ifdef SIMULATE
                         $display("do_gpl_780: going to MOVU from %04X", alu_result);
@@ -1096,6 +1105,18 @@ begin
                     ea <= reg_t;            // Address to read from.
                     cpu_state <= do_movu_ea;
                     cpu_state_gpl_return <= do_movu02;
+                end
+            // The good old misspelled BASIC command will do
+            do_gosuble: begin
+                        // Setup wr_dat with old PC and PC with new PC before coming here.
+                        `ifdef SIMULATE
+                        $display("do_gosuble: writing to R11 >%04X, new PC >%04X", wr_dat, pc);
+                        `endif
+                        arg1 <= { 1'b0, w };
+                        arg2 <= 16'h0016;	// 2*11 <= 22 <= 0x16, offset to R11
+                        ope <= alu_add;
+                        cpu_state <= do_alu_write;
+                        cpu_state_next <= do_fetch;
                 end
             // GPL address mode decoding continues
             do_gpl_addr0: begin
@@ -1210,21 +1231,6 @@ begin
                         arg2 <= 16'h8300;
                         ope <= alu_add;
                         cpu_state <= do_gpl_780;
-                    end else if(gpl_amod[5] == 1'b1) begin
-                        `ifdef SIMULATE
-                        $display("do_gpl_addr_07E4_0: VDP case, setting pc=07E0");
-                        $display("do_gpl_addr_07E4_0: word flag %1d", gpl_word_flag);                      
-                        `endif
-                        // We have VDP access case. Jump back to ROM to handle it.
-                        // However, ROM code expects R10 to contain a shifted version of the first
-                        // addressing mode byte from GROM. At this point the only necessary flag to
-                        // test is indirection. Copy the indirection flag to the Zero flag of the CPU,
-                        // and jump to ROM address 07E0 to handle it and INCT R4. The original 
-                        // ROM code must be changed slightly to first test zero flag, and then
-                        // INCT R4 in any case, and then do the indirection if needed.
-                        st[13] <= gpl_amod[4];  // Indirection flag.
-                        cpu_state <= do_fetch;
-                        pc <= 16'h07E0;
                     end else begin
                         `ifdef SIMULATE
                         $display("do_gpl_addr_07E4_0: indirect from CPU RAM pc=0816");
@@ -1232,6 +1238,8 @@ begin
                         // Here we have the case where we know that we have indirection and CPU RAM.
                         // Since this code is quite complex as it is, jump to ROM 0816 to handle that case.
                         // Once the code this far works, we can implement the rest of the system.
+                        //-- cpu_state <= do_gosuble;  
+                        //-- wr_dat <= pc;		// old PC as in BL instruction
                         cpu_state <= do_fetch;
                         pc <= 16'h816;
                     end
@@ -1340,6 +1348,16 @@ begin
                     arg2 <= 16'h0002;
                     ope <= alu_add;
                     cpu_state <= do_single_op_writeback;    // Return via 
+                end
+            do_gpl_077E: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_077E: GPLS2 instruction R1 >%04X", rd_dat);
+                    `endif
+                    // Dispatch to prior code by loading R1 and going to do_gpl_780
+                    reg_t <= rd_dat;
+                    arg2 <= scratchpad_addr;
+                    ope <= alu_load2;
+                    cpu_state <= do_gpl_780;
                 end
             // MOVU instruction
             do_movu00: begin
