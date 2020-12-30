@@ -15,6 +15,7 @@ ECPPACK = ecppack
 ICEPACK_ICE40 = icepack
 endif
 
+HOSTNAME := $(shell hostname)
 
 # TI-99/4A FGPA implementation for various FPGA boards.
 VERILOGS = src/ram2.v \
@@ -36,7 +37,7 @@ TIPI_VERILOGS = \
 	tipi/shift_sin_pout.v \
 	tipi/tristate_8bit.v 
 
-all: ti994a_ulx3s.bit
+all: $(HOSTNAME)/ti994a_ulx3s.bit
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
 	yosys  -q -DEXTERNAL_VRAM -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v
@@ -82,15 +83,16 @@ VERILOGS_ULX3S = \
  osd/spi_ram_btn.v \
  osd/spirw_slave_v.v 
  
-ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -DLCD_SUPPORT \
-		-p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" \
+$(HOSTNAME)/ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
+	@mkdir -p $(@D)
+	$(YOSYS) -DLCD_SUPPORT -q -DUSE_SDRAM  \
+		-p "synth_ecp5 -abc9 -json $@" \
 		$(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)
 
-ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
-	$(NEXTPNR_ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
-	$(ECPPACK) --compress ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
-
+$(HOSTNAME)/ti994a_ulx3s.bit: Makefile $(HOSTNAME)/ti994a_ulx3s.json
+	$(NEXTPNR_ECP5) --85k --package CABGA381 --json $(HOSTNAME)/ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg $(HOSTNAME)/ti994a_ulx3s_out.cfg	
+	$(ECPPACK) --compress $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
+	
 
 clean:
 	rm -f erik9900.blif erik9900.txt erik9900.bin next9900.bin next9900.asc next9900.json 

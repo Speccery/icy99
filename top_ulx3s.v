@@ -58,9 +58,8 @@ module top_ulx3s
   input  wire [24:0] gp, 
   output wire gp_25,
   output wire gp_26, 
-  output wire gp_27
+  output wire gp_27,
 `ifdef LCD_SUPPORT
-  ,
   output wire oled_clk,
   output wire oled_mosi,
   output wire oled_dc,

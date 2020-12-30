@@ -107,7 +107,17 @@ localparam
     do_movu_ea= 7'd110,          
     do_movu_ea1=7'd111,
     do_movu_ea2=7'd112,
-    do_gpl_780=7'd113
+    // GPL stuff continues
+    do_gpl_780=7'd113,
+    do_gpl_addr_7EE=7'd114,
+    do_gpl_addr_7EE_0=7'd115,
+    do_gpl_addr_7FA=7'd116,
+    do_gpl_addr_7FE=7'd117,
+    do_gpl_addr_802=7'd118,
+    do_gpl_addr_802_0=7'd119,
+    do_gpl_addr_802_1=7'd120,
+    do_gpl_inct_R4=7'd121,
+    do_gpl_inct_R4_0=7'd122
     ;
 
 localparam fetch_sub1=2'd1, fetch_sub2=2'd2, fetch_sub3=3'd3;
@@ -1032,6 +1042,7 @@ begin
                     end else begin 
                         $display("do_gpl1: short direct access 83%02X", rd_dat[6:0]);
                     end
+                    $display("do_gpl1: word flag %1d", gpl_word_flag);
                     `endif
                     // Here rd_dat high byte is the data item we read from GROM.  
                     // We need to write it to R1.
@@ -1166,7 +1177,7 @@ begin
                 end
             do_gpl_addr_07E4: begin
                     `ifdef SIMULATE
-                    $display("do_gpl_addr_07E4: write %04X to R1", alu_result);
+                    $display("do_gpl_addr_07E4: write >%04X to R1", alu_result);
                     `endif
                     wr_dat <= alu_result;
                     reg_t <= alu_result;
@@ -1180,6 +1191,14 @@ begin
                     ope  <= alu_add;
                     cpu_state <= do_alu_write;
                     cpu_state_next <= do_gpl_addr_07E4_0;
+                    if(gpl_amod[5] == 1'b1) begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_07E4: Branching to VDP access");
+                        `endif
+                        // VDP accesses
+                        cpu_state_next <= gpl_amod[4] ? do_gpl_addr_7EE : // indirection then to VDP
+                            do_gpl_addr_7FA;    // Write address to VDP.
+                    end
                 end
             do_gpl_addr_07E4_0: begin
                     if(gpl_amod[5:4] == 2'b00) begin
@@ -1194,6 +1213,7 @@ begin
                     end else if(gpl_amod[5] == 1'b1) begin
                         `ifdef SIMULATE
                         $display("do_gpl_addr_07E4_0: VDP case, setting pc=07E0");
+                        $display("do_gpl_addr_07E4_0: word flag %1d", gpl_word_flag);                      
                         `endif
                         // We have VDP access case. Jump back to ROM to handle it.
                         // However, ROM code expects R10 to contain a shifted version of the first
@@ -1215,6 +1235,111 @@ begin
                         cpu_state <= do_fetch;
                         pc <= 16'h816;
                     end
+                end
+            do_gpl_addr_7EE: begin
+                    // Do the indirection. reg_t has the value of R1. Use it's low byte to do the fetch from scratchpad.
+                    ea <= { 8'h83, reg_t[7:0] };
+                    gpl_word_flag_save <= gpl_word_flag;
+                    gpl_word_flag <= 1'b1;
+                    cpu_state <= do_movu_ea;
+                    cpu_state_gpl_return <= do_gpl_addr_7EE_0;
+                end
+            do_gpl_addr_7EE_0: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_7EE_0: indirection read >%04X from >%04X", wr_dat, ea);
+                    $display("do_gpl_addr_7EE_0: writing >%04X to R1", wr_dat);
+                    `endif
+                    gpl_word_flag <= gpl_word_flag_save;
+                    reg_t <= wr_dat;
+                    // Also need to write to R1 the data we just read.
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 11'b0000_0000_000, 4'h1, 1'b0 };  // calculate address of register 1
+                    ope  <= alu_add;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_gpl_addr_7FA;
+                end
+            do_gpl_addr_7FA: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_7FA: write addr low to VDP >%02X", reg_t[7:0]);
+                    $display("do_gpl_addr_7FA: word flag %1d", gpl_word_flag); 
+                    `endif
+                    // Write address from R1 (reg_t) to VDP address for reading
+                    wr_dat[15:8] <= reg_t[7:0];
+                    arg2 <= 16'h8c02;   // pass VDP address through ALU for consistency
+                    ope <= alu_load2;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_gpl_addr_7FE;
+                end
+            do_gpl_addr_7FE: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_7FA: write addr high to VDP >%02X", reg_t[15:8]);
+                    `endif
+                    wr_dat <= reg_t;
+                    cpu_state <= do_alu_write;
+                    cpu_state_next <= do_gpl_addr_802;
+                end
+            do_gpl_addr_802: begin  // Read from VDP data to R0
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_802: Starting VDP read.");
+                    `endif
+                    arg2 <= 16'h8800;   // pass VDP address through ALU for consistency
+                    ope <= alu_load2;
+                    cpu_state <= do_alu_read;
+                    cpu_state_next <= do_gpl_addr_802_0;
+                end
+            do_gpl_addr_802_0: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_addr_802_0: Got byte >%02X", rd_dat[15:8]);
+                    `endif
+                    if(gpl_word_flag) begin
+                        wr_dat <= { rd_dat[15:8], 8'h00 };   // First byte
+                        cpu_state <= do_alu_read;
+                    end else begin
+                        // Sign extend
+                        wr_dat <= { {8{rd_dat[15]}}, rd_dat[15:8]}; 
+                        cpu_state <= do_gpl_addr_802_1;
+                    end
+                    cpu_state_next <= do_gpl_addr_802_1;
+                end
+            do_gpl_addr_802_1: begin
+                    // Write to R0 the value we have.
+                    if (gpl_word_flag) begin
+                        wr_dat[7:0] <= rd_dat[15:8];
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_802_1: Write to R0 >%04X (word op)", { wr_dat[15:8], rd_dat[15:8]});
+                        `endif
+                    end else begin
+                        `ifdef SIMULATE
+                        $display("do_gpl_addr_802_1: Write to R0 >%04X (byte op)", wr_dat);
+                        `endif
+                    end
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 11'b0000_0000_000, 4'h0, 1'b0 };  // calculate address of register 0
+                    ope  <= alu_add;
+                    cpu_state <= do_alu_write;    
+                    cpu_state_next <= do_gpl_inct_R4;            
+                end
+            do_gpl_inct_R4: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_inct_R4: word flag %1d", gpl_word_flag); 
+                    `endif
+                    // Finally do INCT R4 to signal VDP memory
+                    operand_word <= 1'b1;
+                    arg1 <= { 1'b0, w };
+                    arg2 <= { 11'b0000_0000_000, 4'h4, 1'b0 };  // calculate address of register 4
+                    ope  <= alu_add;
+                    cpu_state <= do_alu_read;
+                    cpu_state_next <= do_gpl_inct_R4_0;
+                end
+            do_gpl_inct_R4_0: begin
+                    `ifdef SIMULATE
+                    $display("do_gpl_inct_R4_0: INCT R4, previous R4 >%04X", rd_dat);
+                    `endif
+                    ea <= alu_result;       // Save register address to EA
+                    arg1 <= { 1'b0, rd_dat };
+                    arg2 <= 16'h0002;
+                    ope <= alu_add;
+                    cpu_state <= do_single_op_writeback;    // Return via 
                 end
             // MOVU instruction
             do_movu00: begin
@@ -1249,7 +1374,7 @@ begin
             // If it is a byte read, it goes to the low byte of wr_dat, with sign extension the high byte.
             do_movu_ea: begin      
                     `ifdef SIMULATE
-                    $display("do_movu_ea, ea=%04X", ea);
+                    $display("do_movu_ea: from >%04X", ea);
                     `endif
                     operand_word <= 1'b0;   // byte read, goes to MSbyte of rd_dat
                     addr <= ea; as <= 1; rd <= 1; cpu_state <= do_read0;
@@ -1277,9 +1402,9 @@ begin
             do_movu_ea2: begin  
                     `ifdef SIMULATE
                      if (gpl_word_flag)
-                        $display("do_movu_ea2, result WORD %04X", {wr_dat[15:8], read_byte_aligner[15:8]} );
+                        $display("do_movu_ea2, result WORD >%04X", {wr_dat[15:8], read_byte_aligner[15:8]} );
                     else
-                        $display("do_movu_ea2, result BYTE %02X", wr_dat[15:8] );
+                        $display("do_movu_ea2, result BYTE >%02X", wr_dat[15:8] );
                     `endif
                     // The final step of the do_movu_ea subroutine.
                     if (gpl_word_flag) begin

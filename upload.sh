@@ -6,7 +6,9 @@ ftp $1 << EOT
 
 cd /sd/ti99_4a/bitstreams
 pwd
+lcd i9900
 put ti994a_ulx3s.bit
+lcd ..
 cd /
 pwd
 lcd esp32/osd
