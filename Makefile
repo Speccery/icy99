@@ -25,7 +25,6 @@ VERILOGS = src/ram2.v \
  src/xmemctrl.v src/gromext.v \
  src/serloader.v src/serial_rx.v \
  src/serial_tx.v src/spi_slave.v src/tms9901.v \
- src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v \
  src/dualport_par.v src/ps2kb.v \
  src/tms9919.v src/pager612.v
 
@@ -36,6 +35,9 @@ TIPI_VERILOGS = \
 	tipi/mux2_8bit.v \
 	tipi/shift_sin_pout.v \
 	tipi/tristate_8bit.v 
+
+LCD_VERILOGS = \
+	src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v 
 
 all: $(HOSTNAME)/ti994a_ulx3s.bit
 
@@ -83,7 +85,7 @@ VERILOGS_ULX3S = \
  osd/spi_ram_btn.v \
  osd/spirw_slave_v.v 
  
-$(HOSTNAME)/ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
+$(HOSTNAME)/ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) $(LCD_VERILOGS) Makefile 
 	@mkdir -p $(@D)
 	$(YOSYS) -DLCD_SUPPORT -q -DUSE_SDRAM  \
 		-p "synth_ecp5 -abc9 -json $@" \

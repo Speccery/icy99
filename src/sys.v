@@ -60,8 +60,10 @@ module sys
     output wire f1_pressed,
     output wire [3:0] cursor_keys_pressed,
     // Audio
-    output [7:0] audio,
+    output [7:0] audio
 
+`ifdef TIPI_SUPPORT
+    ,
     // TIPI signals
     output wire tipi_led0,
     // Raspberry PI interface for TIPI
@@ -72,6 +74,7 @@ module sys
     input wire  tipi_r_dout,  // input from Raspi, GPIO_16, SPI DATA from Raspi
     output wire tipi_r_din,   // output to  Raspi, GPIO_20, SPI data to Raspi
     input wire  tipi_r_dc     // input from Raspi, GPIO_21
+`endif
   );
 
  
@@ -699,8 +702,8 @@ tms9918 vdp(
   );
 
 
+`ifdef TIPI_SUPPORT
   // Signals going to Raspi
-
   tipi_module tipi(
 		.clk(clk),
 		.led0(tipi_led0), // output
@@ -739,6 +742,7 @@ tms9918 vdp(
 		.ti_din(db_out[7:0]), // [0:7]),
     .ti_dout(tipi_dout[7:0]), // [0:7])    
   );
+`endif
 
   // SAMS memory paging unit.
   // CRU interface. Two bits can be written.

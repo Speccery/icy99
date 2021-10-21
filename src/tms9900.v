@@ -277,6 +277,102 @@ begin : mpy_div
         md_step <= !md_step;
     end
 end
+//------------------------------------------------------------------------
+// Microcode ROM
+//------------------------------------------------------------------------
+reg [31:0] microcode[0:255];
+reg [31:0] _m;
+always @(posedge clk)
+begin
+    _m = microcode[cpu_state];
+end
+
+localparam alu_to_ea=1'b1, _ = 1'b0;
+localparam _____ = 5'd0;
+`define mconst _m[15:0]
+
+initial begin
+    //                 alu_to_ea  arg1sel    arg2sel alu_ope    const 
+    microcode[100] = { alu_to_ea, a1_const,  _____,  alu_load1, 16'h0000 };
+end
+
+//------------------------------------------------------------------------
+// arg1 selector
+//------------------------------------------------------------------------
+localparam  a1_w      = 4'h0,  a1_t    = 4'h1,   a1_rd_dat = 4'h2, a1_rd_bytea = 4'h3,
+            a1_wr_dat = 4'h4,  a1_ea   = 4'h5,   a1_cru    = 4'h6, a1_const    = 4'h7;
+//            a1_0      = 4'h6, a1_1        = 4'h7,
+//            a1_2      = 4'h8,  a1_4    = 4'h9,   a1_40     = 4'hA, a1_cru      = 4'hB,
+//            a1_FFFF   = 4'hC,  a1_FFFE = 4'hD;
+reg [16:0] arg1_;
+wire [3:0] arg1sel = 0;
+always @*
+begin
+    case(arg1sel)
+        a1_w:           arg1_ = { 1'b0, w };
+        a1_t:           arg1_ = { 1'b0, reg_t };
+        a1_rd_dat:      arg1_ = { 1'b0, rd_dat };
+        a1_rd_bytea:    arg1_ = { 1'b0, read_byte_aligner };
+        a1_wr_dat:      arg1_ = { 1'b0, wr_dat };   // EPEP - FIXME - data path from wr_dat to arg1. Consider rearranging.
+        a1_ea:          arg1_ = { 1'b0, ea };
+        a1_cru:         arg1_ = { 1'b0, {7{ir[7]}}, ir[7:0],  1'b0 } ;  // Single bit CRU
+        a1_const:       arg1_ = `mconst;
+/*        
+        a1_0:           arg1_ = 17'h0000;
+        a1_1:           arg1_ = 17'h0001;
+        a1_2:           arg1_ = 17'h0002;
+        a1_4:           arg1_ = 17'h0004;   // do_blwp_xop
+        a1_40:          arg1_ = 17'h0040;   // XOP
+        a1_FFFF:        arg1_ = 17'hFFFF;   // DEC
+        a1_FFFE:        arg1_ = 17'hFFFE;   // DECT
+*/        
+    endcase
+end
+
+//------------------------------------------------------------------------
+// arg2 selector
+//------------------------------------------------------------------------
+localparam  a2_datain = 5'h0,   a2_ic03 = 5'h1,     a2_ir30 = 5'h2,    a2_gpl = 5'h3,
+            a2_r1     = 5'h4,   a2_r4   = 5'h5,     a2_r11  = 5'h6,    a2_r12 = 5'h7,
+            a2_r13    = 5'h8,   a2_t    = 5'h9,     a2_t2   = 5'hA,    a2_alu = 5'hB,
+            a2_pad    = 5'hC,   a2_8300 = 5'hD,     a2_vdpa = 5'hE,    a2_vdpd = 5'hF,
+            a2_2      = 5'h10,  a2_movu = 5'h11,    a2_1    = 5'h12,   a2_rd_dat = 5'h13,
+            a2_xop    = 5'h14,  a2_opmod= 5'h15,    a2_inc  = 5'h16;
+reg [15:0] arg2_;
+wire [4:0] arg2sel = 0;
+always @*
+begin
+    case(arg2sel)
+        a2_datain:  arg2_ = data_in;
+        a2_ic03:    arg2_ = { 10'b00_0000_0000, ic03, 2'b00 };
+        a2_ir30:    arg2_ = { 11'b0000_0000_000, ir[3:0], 1'b0 };
+        a2_gpl:     arg2_ = { 11'b0000_0000_000, 
+                                ir[3] == 1'b1 ? 4'h5 :          // MOVU: register 5
+                                ir[2:0] == 3'b010 ? 4'h1 :      // GPLS2: register 1
+                                4'hD,                           // GPLS: register 13
+                                1'b0 };  
+        a2_r1:      arg2_ = { 11'b0000_0000_000, 4'h1, 1'b0 };  // calculate address of register 1
+        a2_r4:      arg2_ = { 11'b0000_0000_000, 4'h4, 1'b0 };  // calculate address of register 4
+        a2_r11:     arg2_ = { 11'b0000_0000_000, 4'hB, 1'b0 };
+        a2_r12:     arg2_ = { 11'b0000_0000_000, 4'hC, 1'b0 };
+        a2_r13:     arg2_ = { 11'b0000_0000_000, 4'hD, 1'b0 };
+        a2_t:       arg2_ = reg_t;
+        a2_t2:      arg2_ = reg_t2;
+        a2_alu:     arg2_ = alu_result;
+        a2_pad:     arg2_ = scratchpad_addr;
+        a2_8300:    arg2_ = 16'h8300;
+        a2_vdpa:    arg2_ = 16'h8c02;
+        a2_vdpd:    arg2_ = 16'h8800;
+        a2_2:       arg2_ = 16'h0002;
+        a2_movu:    arg2_ = { 12'h000, ir[2:0], 1'b0 };    // One of registers 0..7
+        a2_1:       arg2_ = 16'h1;
+        a2_rd_dat:  arg2_ = rd_dat; // is this necessary on the arg2 port?
+        a2_xop:     arg2_ = { 8'h00, 2'b00, ir[9:6], 2'b00 };	// 4*XOP number
+        a2_opmod:   arg2_ = { 11'b0000_0000_000, operand_mode[3:0], 1'b0 };
+        a2_inc:     arg2_ = operand_word ? 16'h0002 : 16'h0001;
+    endcase
+end
+
 
 //------------------------------------------------------------------------
 //  The Absolytely Awesome State Machine
@@ -292,8 +388,8 @@ begin
         cruclk_internal <= 1'b0;
         // Prepare for BLWP from 0
         i_am_xop <= 1'b0;
-        arg2 <= 16'h0000;
-        ope <= alu_load2;
+        arg1 <= 17'h0000;
+        ope <= alu_load1;
         cpu_state <= do_blwp00;
         // Continue with reset theme
         delay_count = 0;
@@ -718,16 +814,18 @@ begin
                         read_to_arg2 <= 1;
                         cpu_state_next <= do_single_op_writeback;
                         cpu_state <= do_read0; addr <= alu_result; as <= 1; rd <= 1; 
-                        arg1 <= 17'hFFFF;	// add -1 to create DEC
-                        ope <= alu_add;
+                        // Since we read the data to arg2, we cannot use SUB. This in turn means 
+                        // we have two extra constants FFFF and FFFE.
+                        arg1 <= 17'hFFFF; // 17'd1;
+                        ope <= alu_add; //  alu_sub;
                         end
                     4'b1001: begin // DECT instruction
                         ea <= alu_result;	// save address SA
                         read_to_arg2 <= 1;
                         cpu_state_next <= do_single_op_writeback;
                         cpu_state <= do_read0; addr <= alu_result; as <= 1; rd <= 1; 
-                        arg1 <= 17'hFFFE;	// add -2 to create DEC
-                        ope <= alu_add;
+                        arg1 <= 17'hFFFE; // 17'd2;	
+                        ope <= alu_add; // alu_sub;
                         end
                     4'b0010: begin // X instruction...
                         ea <= alu_result;
@@ -958,7 +1056,7 @@ begin
 				    // Now rd_dat is new PC, reg_t new WP, alu_result addr of new R11
 					wr_dat <= reg_t2;				// Write effective address to R11
 					ea     <= alu_result;
-					arg1   <= 16'h0004;			// Add 4 to skip R12, point to R13 for WP storage
+					arg1   <= 17'h0004;			// Add 4 to skip R12, point to R13 for WP storage
 					arg2   <= alu_result;		// prepare for WP write, i.e. point to new R14
 					cpu_state 	   <= do_write; // write effective address to new R11
 					cpu_state_next <= do_blwp1;						
@@ -1440,8 +1538,7 @@ begin
                     if (shift_count == 5'b00000) begin
                         // we need to read WR0 to get shift count
                         arg1 <= { 1'b0, w };
-                        arg2 <= 16'h0000;
-                        ope <= alu_add;
+                        ope <= alu_load1;
                         cpu_state <= do_alu_read;
                         cpu_state_next <= do_shifts1;
                     end else begin
@@ -1525,10 +1622,7 @@ begin
             //-----------------------------------------------------------
             do_single_bit_cru0: begin
                     // contents of R12 are in rd_dat. Sign extend the 8-bit displacement.
-                    arg1 <= { 1'b0, // 17th bit
-                        ir[7], ir[7], ir[7], ir[7], ir[7], ir[7], ir[7], 
-                        ir[7:0],  1'b0
-                        } ;
+                    arg1 <= { 1'b0, {7{ir[7]}}, ir[7:0],  1'b0 } ;
                     arg2 <= rd_dat;
                     ope <= alu_add;
                     cpu_state <= do_single_bit_cru1;
@@ -1639,8 +1733,8 @@ begin
                     end else begin
                         // fetch the 2nd word of the dividend, first calculate it's address                            
                         reg_t2 <= rd_dat;   // store the high word
-                        arg1 <= 17'h0002;
-                        arg2 <= ea;
+                        arg1 <= {1'b0, ea };
+                        arg2 <= 16'h0002;
                         ope <= alu_add;
                         cpu_state <= do_alu_read;
                         cpu_state_next <= do_div1;  
@@ -1663,8 +1757,8 @@ begin
                     // Note that the store order depends of MPY/DIV. Perhaps this could be done better?
                     wr_dat <= mpy_op ? dividend[31:16] : dividend[15 : 0];	
                     // prepare in ALU the next address 
-                    arg1 <= 17'h0002;
-                    arg2 <= ea;
+                    arg1 <= {1'b0, ea };
+                    arg2 <= 16'h0002;
                     ope <= alu_add;
                     // write
                     cpu_state <= do_write;
@@ -1759,8 +1853,8 @@ begin
                         cpu_state <= do_ldcr5;	// skip creation of CLKOUT pulse
                     end
                     reg_t <= alu_result;				// store right shifted operand
-                    arg1 <= 17'h0002;
-                    arg2 <= ea;
+                    arg1 <= { 1'b0, ea };
+                    arg2 <= 16'h0002;
                     ope <= alu_add;
                     delay_count = cru_delay_spec; // cru_delay_clocks;
                 end
