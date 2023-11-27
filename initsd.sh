@@ -4,6 +4,7 @@
 
 ftp 192.168.0.160 << EOT
 
+bin
 cd /sd
 mkdir ti99_4a
 cd ti99_4a

@@ -87,13 +87,19 @@ VERILOGS_ULX3S = \
  
 $(HOSTNAME)/ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) $(LCD_VERILOGS) Makefile 
 	@mkdir -p $(@D)
-	$(YOSYS) -DLCD_SUPPORT -q -DUSE_SDRAM  \
-		-p "synth_ecp5 -abc9 -json $@" \
-		$(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)
+	$(YOSYS) \
+		-p "read -sv $(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)" \
+		-p "hierarchy -top top_ulx3s" \
+		-p "synth_ecp5 -abc9 -json $@" 
+	# these moved to top_ulx3s.v
+	#  -DTIPI_SUPPORT -DLCD_SUPPORT -q -DUSE_SDRAM 
+
 
 $(HOSTNAME)/ti994a_ulx3s.bit: Makefile $(HOSTNAME)/ti994a_ulx3s.json
-	$(NEXTPNR_ECP5) --85k --package CABGA381 --json $(HOSTNAME)/ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg $(HOSTNAME)/ti994a_ulx3s_out.cfg	
-	$(ECPPACK) --compress $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
+	$(NEXTPNR_ECP5) --85k --package CABGA381 --json $(HOSTNAME)/ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg $(HOSTNAME)/ti994a_ulx3s_out.cfg 
+	# --lpf-allow-unconstrained
+	# $(ECPPACK) --compress $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
+	$(ECPPACK) --compress --freq 62.0 $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
 	
 
 clean:

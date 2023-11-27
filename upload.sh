@@ -4,9 +4,10 @@
 
 ftp $1 << EOT
 
+bin
 cd /sd/ti99_4a/bitstreams
 pwd
-lcd Eriks-MBP.lan
+lcd EriksMacStudio.lan
 put ti994a_ulx3s.bit
 lcd ..
 cd /
@@ -21,7 +22,7 @@ put VDP9938.bin
 lcd ../roms
 cd /sd/ti99_4a/rom
 pwd
-put 99opt.bin
+put 994aROM.Bin
 bye
 EOT
 

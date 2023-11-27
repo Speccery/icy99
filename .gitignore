@@ -60,3 +60,5 @@ tools/serialtool
 vdpregs.bin
 ws-icy99.code-workspace
 ws-mbp.code-workspace
+gpl-opt/dis_mac
+sd-2gb-backup/

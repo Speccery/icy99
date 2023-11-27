@@ -964,7 +964,9 @@ end
           // Note that we stick in this state for as long as we can start writing pixels.
           if(sprite_color[7] == 1'b1) begin
             // early clock bit set. Now we need to figure out our address.
+            `ifdef SIMULATE
             $display("Early bit set, counter=%d", sprite_counter);
+            `endif
             if((sprite_x) >= 32) begin
               // just force bit 5 to zero to substract 32. This is bogus but we don't care
               vga_line_buf_addr <= {sprite_x[7:6],1'b0,sprite_x[4:0],1'b0};
@@ -972,7 +974,9 @@ end
               // Sprite bleeds in from the left
               vga_line_buf_addr <= 9'd0;
               sprite_early_clocks <= 6'd32-{ 1'b0, sprite_x[4:0] };
+              `ifdef SIMULATE
               $display("Setting sprite_early_clocks %d", sprite_early_clocks);
+              `endif
             end
           end else begin
             vga_line_buf_addr <= {sprite_x,1'b0}; // setup address normally

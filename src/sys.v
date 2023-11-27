@@ -141,9 +141,9 @@ module sys
     ab[15:14] == 2'b11);        // C000..FFFF 16K of extended 32K RAM
 
   wire sams_area_cs = // SAMS area overrides the above. 32K RAM expansion must also be mapped to SAMS region.
-    ab[15:13] == 3'b001 ||      // 2000..3fff low 8k of extended 32K RAM
-    ab[15:13] == 3'b101 ||      // A000..BFFF 8K of extended 32K RAM
-    ab[15:14] == 2'b11;         // C000..FFFF 16K of extended 32K RAM
+    (ab[15:13] == 3'b001) ||      // 2000..3fff low 8k of extended 32K RAM
+    (ab[15:13] == 3'b101) ||      // A000..BFFF 8K of extended 32K RAM
+    (ab[15:14] == 2'b11);         // C000..FFFF 16K of extended 32K RAM
 
   // GROM control signals
   wire grom_wr = (wr && !last_wr && ab[15:8] == 8'h9c);
@@ -157,7 +157,7 @@ module sys
   wire cruin, cruout, cruclk, xout, rin;
   wire cruin_9901, cruin_9902;
   wire nrts, ncts;
-  wire int = 0;
+  // wire int = 0;
   wire nmi = 0;
   wire hold;  
 
@@ -742,6 +742,8 @@ tms9918 vdp(
 		.ti_din(db_out[7:0]), // [0:7]),
     .ti_dout(tipi_dout[7:0]), // [0:7])    
   );
+`else
+assign tipi_enabled = 1'b0;
 `endif
 
   // SAMS memory paging unit.

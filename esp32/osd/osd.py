@@ -452,20 +452,26 @@ class osd:
     gc.collect()
 
 # FPGA init function not part of class.
-def load_fpga():
-  fpga_config_file="/sd/ti99_4a/bitstreams/ti994a_ulx3s.bit"
+def load_fpga(fname):
+  if len(fname) == 0:
+    fname = "ti994a_ulx3s.bit"
+  fpga_config_file="/sd/ti99_4a/bitstreams/" + fname
   print("FPGA file: {}".format(fpga_config_file))
   ecp5.prog(fpga_config_file) # ulx3s_85f_spi_ti99_4a.bit")
   gc.collect()
+  print("FPGA loaded.")
 
 def reset():
   import machine
   machine.reset()
 
 os.mount(SDCard(slot=3),"/sd")
-load_fpga()
 
-run=osd()
-run.load_roms()
+if True:
+  load_fpga("")
+  print("Creating OSD object")
+  run=osd()
+  print("Loading ROMs")
+  run.load_roms()
 
 
