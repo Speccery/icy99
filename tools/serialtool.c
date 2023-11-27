@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <termios.h>
+#include <string.h>
  
 
 unsigned fpga_addr=0;
@@ -176,6 +177,81 @@ unsigned get_repeat_counter_16(int fd) {
   k = buf[0] | (buf[1] << 8);
   return k;
 }
+
+int receive_block_complete(int fd, void *block, size_t size, unsigned timeout) {
+  unsigned realsize = 0, read;
+  uint8_t *result;
+	int loops = 0;
+  unsigned int u;
+  unsigned char *up;
+	// unsigned now = GetTickCount();
+  result = (uint8_t *) block;
+  // SerialTimeoutSet(timeout);
+
+  do {
+    ssize_t read = read_port(fd, result + realsize, size - realsize);
+    realsize += read;
+		loops++;
+		
+		if (realsize < size)
+			sleep(1);
+
+  } while(realsize < size); 
+  // while ((realsize < size) && (SerialTimeoutCheck() == 0));  
+  return realsize == size ? 0 : 1;
+}
+
+void read_memory_block(int fd, unsigned char *dest, unsigned address, int len) {
+  setup_hw_address(fd, address);
+  // Enable autoincrement mode and configure length
+  write_port(fd, (uint8_t *)"M3", 2);
+  set_repeat_counter_16(fd, len);
+  // Send read command and read our stuff
+  write_port(fd, (uint8_t *)"@", 1);
+  receive_block_complete(fd, dest, len, 2000);
+}
+
+int write_memory_block(int fd, unsigned char *source, unsigned address, int len) {
+  int chunk = len > 1024 ? 1024 : len;
+  setup_hw_address(fd, address);
+  // Enable autoincrement mode and configure length
+  if(write_port(fd, (uint8_t *)"M3", 2))
+    return -1;
+  set_repeat_counter_16(fd, chunk);
+  // Send write command and write our stuff
+  if(write_port(fd, (uint8_t *)"!", 1))
+    return -2;
+  if(write_port(fd, source, chunk))
+    return -3;
+  try_sync(fd);
+  return chunk;
+}
+
+int load_file(int fd, char *filename, unsigned addr) {
+  FILE *f = fopen(filename, "rb");
+  if(!f) {
+    fprintf(stderr, "Unable to open source file\n");
+    return -1;
+  }
+  uint8_t buf[1024];
+  int total = 0;
+  int n;
+  do {
+    n = fread(buf, sizeof(uint8_t), sizeof(buf), f);
+    if(n > 0) {
+      int r = write_memory_block(fd, buf, addr, n);
+      if(r < 0) {
+        fprintf(stderr, "write_memory_block failed %d\n", r);
+        fclose(f);
+        return r;
+      }
+      addr += n;
+      total += n;
+    }
+  } while(n > 0);
+  printf("load_file done, wrote %d bytes, final address %X\n", total, addr);
+  return 0;
+}
  
 int main(int argc, char *argv[])
 {
@@ -194,24 +270,37 @@ int main(int argc, char *argv[])
   int fd = open_serial_port(device, baud_rate);
   if (fd < 0) { return 1; }
  
-  if(try_sync(fd)) {
-    printf("Sync succeeded\n");
-  }
+ 
+  if(argc > 3 && !strcmp(argv[2], "-l")) {
+    // argv[1] = port
+    // argv[2] = -l 
+    // argv[3] = filename
+    // argv[4] = address (in hex)
+    unsigned a;
+    int r = sscanf(argv[4], "%x", &a);
+    printf("r, a %X %X\n", a, r);
 
-  int ok = 0;
-  unsigned a = read_hw_address(fd, &ok);
-  printf("hw addr=0x%X ok=%d\n", a, ok);
-  printf("Repeat counter: %d\n", get_repeat_counter_16(fd));
-  setup_hw_address(fd, 0x123456);
-  set_repeat_counter_16(fd, 0x2112);
-  a = read_hw_address(fd, &ok);
-  printf("hw addr=0x%X ok=%d\n", a, ok);
-  printf("Repeat counter: 0x%X\n", get_repeat_counter_16(fd));
-  
-  if(try_sync(fd)) {
-    printf("Sync succeeded\n");
-  }
+  } else { 
 
+  if(try_sync(fd)) {
+      printf("Sync succeeded\n");
+    }
+
+
+    int ok = 0;
+    unsigned a = read_hw_address(fd, &ok);
+    printf("hw addr=0x%X ok=%d\n", a, ok);
+    printf("Repeat counter: %d\n", get_repeat_counter_16(fd));
+    setup_hw_address(fd, 0x123456);
+    set_repeat_counter_16(fd, 0x2112);
+    a = read_hw_address(fd, &ok);
+    printf("hw addr=0x%X ok=%d\n", a, ok);
+    printf("Repeat counter: 0x%X\n", get_repeat_counter_16(fd));
+    
+    if(try_sync(fd)) {
+      printf("Sync succeeded\n");
+    }
+  }
 
   close(fd);
   return 0;
