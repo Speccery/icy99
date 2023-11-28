@@ -2,6 +2,17 @@
 TI-99/4A FPGA implementation for the Icestorm toolchain.
 Primary target board currently the ULX3S FPGA board. Tested with the version 3.0.3 of the board with the ECP5 85F FPGA chip.
 
+2023-11-28 Updated for new toolchain
+====================================
+Wow it has been a long time. I had received reports that the code no longer works with new versions of the **oss-cad-suite** toolchain. No wonder, as I haven't worked on the project for way too long. The project now works with the 2023-11-18 release which I used during debugging.
+
+After several evenings of debugging, it now works with ULX3S. I had to disable SDRAM, since the primitive **IFS1P3BX** is no longer there and not recognized by nextpnr-ecp5 anymore. I need to check what replaced it to get the SDRAM interface working again. 
+
+In addition to disabling SDRAM, to simplify debugging, I disabled TIPI support too. That probably was the culprit for non-SDRAM not working anymore, since the **db_in** selection mux no longer worked properly, as the signal **tipi_ioreg_en** was constantly low and disabled access to ROM or RAM. In the debugging process I extended the tracebuffer from 36 to 72 bits wide, and that enabled me to see what was wrong and fix it. 
+
+Only tested with ULX3S 85F. The current version uses a lot of block RAMs on the ULX3S since SDRAM is not used.
+I have not tried the BlackIce II version in long time either.
+
 2020-11-27 TIPI support added 
 =============================
 * Added support for the TIPI system (TI - Raspberry PI interface)

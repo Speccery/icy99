@@ -5,9 +5,15 @@
 // implements the TI-99/4A.
 
 // The following macros enable placement of ROM contents to SDRAM to save internal block RAM.
+`ifdef USE_SDRAM
+// If SDRAM is not configured, everything must be internally stored.
 `define CONSOLE_GROM_IN_SDRAM 1   // 24K
 `define CART_GROM_IN_SDRAM    1   // 32K
 `define CONSOLE_ROM_IN_SDRAM  1   // 8K
+`endif
+
+//`define TIPI_SUPPORT          1   // Raspberry PI interface
+//`define LCD_SUPPORT           1   // ST7789 LCD
 
 
 module top_ulx3s
@@ -58,9 +64,8 @@ module top_ulx3s
   input  wire [24:0] gp, 
   output wire gp_25,
   output wire gp_26, 
-  output wire gp_27
+  output wire gp_27,
 `ifdef LCD_SUPPORT
-  ,
   output wire oled_clk,
   output wire oled_mosi,
   output wire oled_dc,
@@ -88,8 +93,9 @@ module top_ulx3s
   #(
       .in_hz( 25*1000000),
     .out0_hz(125*1000000),
-    .out1_hz( 25*1000000),
-    .out2_hz(125*1000000), .out2_deg(90)
+    .out1_hz( 25*1000000)
+    // ,
+    // .out2_hz(125*1000000), .out2_deg(90)
   )
   ecp5pll_inst
   (
@@ -252,9 +258,10 @@ module top_ulx3s
   wire pad_sel = (ADR[22: 9] == 14'b0000_0000_1000_00);//  1K @ 08000 
 `endif
   wire gro_sel = (ADR[22:15] == 8'b0000_0001);        // 64K @ 10000 (actually 56K)
-  `ifdef EXTERNAL_VRAM
+`ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
-  `endif  
+`endif  
+
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[22:12] == 11'b0000_0000_001)    // 2000..3FFF 
               || (ADR[22:12] == 11'b0000_0000_101)    // A000..BFFF
@@ -428,7 +435,7 @@ module top_ulx3s
     grom_ext_sel ? grom_ext_out :           // Cartridge GROM 32K
 `endif
     ram_sel ? ram_expansion_out :
-    16'h0000;
+    16'h0001;  // 0001 if nothing selected
 
   // VGA
   wire [3:0] red, green, blue;
@@ -444,8 +451,8 @@ module top_ulx3s
   wire serloader_tx;
   wire tms9902_tx;
   
-  `define SERIAL_TO_TMS9902
-  // `define SERIAL_TO_ESP
+  // `define SERIAL_TO_TMS9902
+  `define SERIAL_TO_ESP
   `ifndef SERIAL_TO_ESP
     `ifdef SERIAL_TO_TMS9902
       // Here our serial traffic goes to TMS9902
@@ -467,7 +474,7 @@ module top_ulx3s
   `endif
 
 `ifndef SERIAL_TO_TMS9902  
-  wire tms9902_rx = gp[26];   // receive from FTDI chip
+  wire tms9902_rx = gp[0]; // pins changed for TIPI gp[26];   // receive from FTDI chip
   assign gp_27 = tms9902_tx;
 `endif
   // wire serloader_rx = gp[26];     // serloader UART receive GPIO_3;
@@ -531,6 +538,7 @@ module top_ulx3s
     .sram_pins_drive(sram_pins_drive),
     .memory_busy(memory_busy), 
     .use_memory_busy(use_memory_busy),
+    .romsel(rom_sel), // EPEP debugging - goes to tracebuf
     .red(red), .green(green), .blue(blue),
     .hsync(hsync), .vsync(vsync), .vde(vde), // video display enable signal
     .cpu_reset_switch_n(R_btn_resetn),  // cpu_reset_switch_n
@@ -561,8 +569,9 @@ module top_ulx3s
     .f1_pressed(f1_pressed),
     .cursor_keys_pressed(cursor_keys_pressed),
     // audio DAC put
-    .audio(audio),
-
+    .audio(audio)
+`ifdef TIPI_SUPPORT    
+    ,
     .tipi_led0(tipi_led0),
     // Raspberry PI interface for TIPI
     .tipi_r_clk(tipi_r_clk),    
@@ -572,7 +581,7 @@ module top_ulx3s
     .tipi_r_dout(tipi_r_dout),  // input from Raspi, GPIO_16, SPI DATA from Raspi
     .tipi_r_din(tipi_r_din),    // output to  Raspi, GPIO_20, SPI data to Raspi
     .tipi_r_dc(tipi_r_dc)       // input from Raspi, GPIO_21
-
+`endif
   );
   assign audio_l = audio[7:4];
   assign audio_r = audio[7:4];  
@@ -614,7 +623,7 @@ module top_ulx3s
   // Buffer signals going to the DVI conversion.
   reg [7:0] epr_osd_vga_r, epr_osd_vga_g, epr_osd_vga_b;
   reg epr_osd_vga_hsync, epr_osd_vga_vsync, epr_osd_vga_blank;
-  always @(pll_25mhz)
+  always @(posedge pll_25mhz)
   begin 
     epr_osd_vga_r     <= osd_vga_r;
     epr_osd_vga_g     <= osd_vga_g;
@@ -624,7 +633,7 @@ module top_ulx3s
     epr_osd_vga_blank <= osd_vga_blank;
   end
 
-  wire [1:0] tmds[3:0];
+  wire [1:0] tmds3, tmds2, tmds1, tmds0;
   generate
   if(c_dvi_v)
   DVI_out
@@ -642,10 +651,10 @@ module top_ulx3s
     .vde(  ~epr_osd_vga_blank),
     .hSync( epr_osd_vga_hsync),
     .vSync( epr_osd_vga_vsync),
-    .tmds_c(tmds[3]),
-    .tmds_r(tmds[2]),
-    .tmds_g(tmds[1]),
-    .tmds_b(tmds[0])
+    .tmds_c(tmds3),
+    .tmds_r(tmds2),
+    .tmds_g(tmds1),
+    .tmds_b(tmds0)
   );
   if(c_vga2dvid_vhd)
   // VGA to digital video converter
@@ -664,17 +673,17 @@ module top_ulx3s
     .in_hsync(osd_vga_hsync),
     .in_vsync(osd_vga_vsync),
     .in_blank(osd_vga_blank),
-    .out_clock(tmds[3]),
-    .out_red(tmds[2]),
-    .out_green(tmds[1]),
-    .out_blue(tmds[0])
+    .out_clock(tmds3),
+    .out_red(tmds2),
+    .out_green(tmds1),
+    .out_blue(tmds0)
   );
   endgenerate
 
-  ODDRX1F ddr0_clock (.D0(tmds[3][0]), .D1(tmds[3][1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_red   (.D0(tmds[2][0]), .D1(tmds[2][1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_green (.D0(tmds[1][0]), .D1(tmds[1][1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_blue  (.D0(tmds[0][0]), .D1(tmds[0][1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_clock (.D0(tmds3[0]), .D1(tmds3[1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_red   (.D0(tmds2[0]), .D1(tmds2[1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
 
 
 

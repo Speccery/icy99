@@ -414,8 +414,10 @@ class osd:
     del s
     gc.collect()
 
-  def load_roms(self):
-    romfile = "/sd/ti99_4a/rom/994AROM.Bin"
+  def load_roms(self,rom=""):
+    romfile = rom
+    if(len(rom) == 0):
+      romfile = "/sd/ti99_4a/rom/994AROM.Bin"
     gromfile = "/sd/ti99_4a/grom/994AGROM.Bin"
     import ld_ti99_4a
     s=ld_ti99_4a.ld_ti99_4a(self.spi,self.cs)
@@ -433,6 +435,9 @@ class osd:
     del s
     gc.collect()
 
+  def opt(self):
+    self.load_roms("/sd/ti99_4a/rom/99opt.bin")
+
   def save_mem(self, filename, addr,length):
     import ld_ti99_4a
     old_freq = self.spi_freq
@@ -446,21 +451,48 @@ class osd:
     self.init_spi()
     gc.collect()
 
+  def dump_mem(self, addr,length):
+    import ld_ti99_4a
+    old_freq = self.spi_freq
+    self.spi_freq = const(100000)
+    self.init_spi()
+    s=ld_ti99_4a.ld_ti99_4a(self.spi, self.cs)
+    print("Dumping from {a:04X} len {b:04X}".format(a=addr, b=length))
+    r=s.read_bytes(addr, length)
+    del s
+    self.spi_freq = old_freq
+    self.init_spi()
+    cnt=0
+    for x in r:
+      print("{a:02X} ".format(a=x), end="")
+      cnt += 1
+      if cnt == 8:
+        print()
+        cnt=0
+    gc.collect()
+
+
 # FPGA init function not part of class.
-def load_fpga():
-  fpga_config_file="/sd/ti99_4a/bitstreams/ti994a_ulx3s.bit"
+def load_fpga(fname):
+  if len(fname) == 0:
+    fname = "ti994a_ulx3s.bit"
+  fpga_config_file="/sd/ti99_4a/bitstreams/" + fname
   print("FPGA file: {}".format(fpga_config_file))
   ecp5.prog(fpga_config_file) # ulx3s_85f_spi_ti99_4a.bit")
   gc.collect()
+  print("FPGA loaded.")
 
 def reset():
   import machine
   machine.reset()
 
 os.mount(SDCard(slot=3),"/sd")
-load_fpga()
 
-run=osd()
-run.load_roms()
+if True:
+  load_fpga("")
+  print("Creating OSD object")
+  run=osd()
+  print("Loading ROMs")
+  run.load_roms()
 
 

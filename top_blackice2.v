@@ -93,6 +93,7 @@ module top_blackice2(
       .hsync(hsync), 
       .vsync(vsync),
       .cpu_reset_switch_n(DIG18),  
+`ifdef LCD_SUPPORT      
       // LCD signals
       .pin_cs(pin_cs), 
       .pin_sdin(pin_sdin), 
@@ -101,6 +102,7 @@ module top_blackice2(
       .pin_resn(pin_resn), 
       .pin_vccen(pin_vccen), 
       .pin_pmoden(pin_pmoden),
+`endif      
       .serloader_tx(serloader_tx), 
       .serloader_rx(serloader_rx), // bootloader UART
     .vde(vde),    // Video display enable (active area)
@@ -108,6 +110,7 @@ module top_blackice2(
     .ps2dat(ps2_data)
   );
 
+`ifdef LCD_SUPPORT
   assign PMOD5_1 = pin_cs;
   assign PMOD5_2 = pin_sdin;
   assign PMOD5_3 = 1'b0;
@@ -116,7 +119,7 @@ module top_blackice2(
   assign PMOD6_2 = pin_resn;
   assign PMOD6_3 = pin_vccen;
   assign PMOD6_4 = pin_pmoden;
-
+`endif 
 
 endmodule
 

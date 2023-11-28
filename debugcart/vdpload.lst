@@ -1,0 +1,123 @@
+XAS99 CROSS-ASSEMBLER   VERSION 1.5.2
+**** **** ****     > vdpload.asm
+0001               * EXECUTABLE CART IMAGE
+0002               * Erik Piehl (C) 2020 October
+0003               *
+0004               * VDPTest, this is a cartridge with 5 banks.
+0005               * Each bank has this same executable in the bottom 4K, padded to 4K.
+0006               * The top 4K contain data to be written to VDP memory, basically
+0007               * the 16K VDP + regs image split to four 4K blocks and the last having
+0008               * the registers.
+0009               * Taken from a VDPDUMP.BIN file created with classic99.
+0010               
+0011                      IDT  'VDPTEST'
+0012               
+0013      8C00     VDPWD  EQU  >8C00             * VDP write data
+0014      8C02     VDPWA  EQU  >8C02             * VDP set read/write address
+0015      8800     VDPRD  EQU  >8800             * VDP read data
+0016      8890     VDPPTR EQU  >8890             * VDP extension: VRAM address pointer
+0017      6000     BANK0  EQU  >6000
+0018      6008     BANK4  EQU  >6008
+0019      7000     DATABLK EQU >7000             *
+0020               
+0021               *---------------------------------------------
+0022               * Locations in workspace RAM.
+0023      8300     WRKSP  EQU  >8300             * Workspace memory in fast RAM (for paging tests)
+0024      8301     R0LB   EQU  WRKSP+1           * Register zero low byte address
+0025               *---------------------------------------------
+0026               
+0027               	 EVEN
+0028               
+0029               *---------------------------------------------
+0030               * Set VDP read address from R0
+0031               *---------------------------------------------
+0032               VDPREADA
+0033 0000 0240  22       ANDI  R0,>3FFF          * make sure it is a read command
+     0002 3FFF 
+0034 0004 06C0  14       SWPB  R0
+0035 0006 D800  38       MOVB  R0,@VDPWA      		* Send low byte of VDP RAM write address
+     0008 8C02 
+0036 000A 06C0  14       SWPB  R0
+0037 000C D800  38       MOVB  R0,@VDPWA         * Send high byte of VDP RAM write address
+     000E 8C02 
+0038 0010 045B  20       RT
+0039               
+0040               *---------------------------------------------
+0041               * Set VDP address from R0
+0042               *---------------------------------------------
+0043               SETUPVDPA
+0044 0012 06C0  14       SWPB  R0
+0045 0014 D800  38       MOVB  R0,@VDPWA      		* Send low byte of VDP RAM write address
+     0016 8C02 
+0046 0018 06C0  14       SWPB  R0
+0047 001A 0260  22       ORI   R0,>4000          * Set read/write bits 14 and 15 to write (01)
+     001C 4000 
+0048 001E D800  38       MOVB  R0,@VDPWA         * Send high byte of VDP RAM write address
+     0020 8C02 
+0049 0022 045B  20       RT
+0050               
+0051               *---------------------------------------------
+0052               * Write VDP register
+0053               *---------------------------------------------
+0054 0024 0260  22 VWREG   ORI R0,>8000
+     0026 8000 
+0055 0028 06C0  14 CMD     SWPB R0
+0056 002A D800  38         MOVB R0,@>8C02
+     002C 8C02 
+0057 002E 06C0  14         SWPB R0
+0058 0030 D800  38         MOVB R0,@>8C02
+     0032 8C02 
+0059 0034 045B  20         B *R11
+0060               
+0061               *---------------------------------------------
+0062               * MAIN
+0063               *---------------------------------------------
+0064 0036 0300  24 MAIN    LIMI 0                 * Disable interrupts
+     0038 0000 
+0065 003A 02E0  18         LWPI WRKSP             * Load the workspace pointer to fast RAM
+     003C 8300 
+0066               ; Switch to the graphics mode specified in ROM bank 4
+0067 003E 04E0  34         CLR   @BANK4           * Switch to ROM bank 4
+     0040 6008 
+0068 0042 0201  20         LI    R1,DATABLK
+     0044 7000 
+0069 0046 04C0  14         CLR   R0
+0070 0048 0202  20         LI    R2,8
+     004A 0008 
+0071 004C 06C0  14 !       SWPB  R0       ; Move VDP reg number to lower byte
+0072 004E D031  28         MOVB  *R1+,R0  ; Fetch register value byte
+0073 0050 06C0  14         SWPB  R0       ; Now reg num in high byte, data in low byte
+0074 0052 06A0  32         BL    @VWREG
+     0054 0024r
+0075 0056 0220  22         AI    R0,>0100    ; Inc reg number
+     0058 0100 
+0076 005A 0602  14         DEC   R2
+0077 005C 16F7  14         JNE    -!
+0078               ; Done. Setup VDP VRAM pointer to zero.
+0079 005E 0200  20         LI   R0,0
+     0060 0000 
+0080 0062 06A0  32         BL   @SETUPVDPA
+     0064 0012r
+0081               ; Next go through banks 0,1,2,3 and copy 4K data from each to VRAM.
+0082 0066 0203  20         LI    R3,BANK0
+     0068 6000 
+0083               BANKLOOP:
+0084 006A 04D3  26         CLR   *R3       ; Change to a bank
+0085 006C 0201  20         LI    R1,>1000  ; 4K data to Move
+     006E 1000 
+0086 0070 0202  20         LI    R2,DATABLK ; Source
+     0072 7000 
+0087               ; Loop through the block of 4K
+0088 0074 D832  48 !       MOVB  *R2+,@VDPWD
+     0076 8C00 
+0089 0078 0601  14         DEC   R1
+0090 007A 16FC  14         JNE   -!
+0091               ; Done, go to next bank
+0092 007C 05C3  14         INCT  R3
+0093 007E 0283  22         CI    R3,BANK4      ; Point to bank 4?
+     0080 6008 
+0094 0082 16F3  14         JNE   BANKLOOP  ; No, go back
+0095               ; Done. stop here.
+0096 0084 10FF  14 STOP    JMP  STOP
+0097               
+0098                       END MAIN

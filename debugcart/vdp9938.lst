@@ -1,0 +1,357 @@
+XAS99 CROSS-ASSEMBLER   VERSION 3.0.0
+     **** ****     > vdp9938.asm
+0001               * EXECUTABLE CART IMAGE
+0002               * Erik Piehl (C) 2020 December
+0003               *
+0004               * VDP9938.ASM
+0005               *
+0006               * Try out the VDP9938 registers.
+0007               
+0008                      IDT  'VDP9938'
+0009               
+0010      8C00     VDPWD  EQU  >8C00             * VDP write data
+0011      8C02     VDPWA  EQU  >8C02             * VDP set read/write address
+0012      8800     VDPRD  EQU  >8800             * VDP read data
+0013      8890     VDPPTR EQU  >8890             * VDP extension: VRAM address pointer
+0014      6000     BANK0  EQU  >6000
+0015      6008     BANK4  EQU  >6008
+0016      7000     DATABLK EQU >7000             *
+0017               
+0018               *---------------------------------------------
+0019               * Locations in workspace RAM.
+0020      8300     WRKSP  EQU  >8300             * Workspace memory in fast RAM (for paging tests)
+0021      8301     R0LB   EQU  WRKSP+1           * Register zero low byte address
+0022               *---------------------------------------------
+0023               
+0024               	 EVEN
+0025               
+0026               *---------------------------------------------
+0027               * Set VDP read address from R0
+0028               *---------------------------------------------
+0029               VDPREADA
+0030 0000 0240  22       ANDI  R0,>3FFF          * make sure it is a read command
+     0002 3FFF     
+0031 0004 06C0  14       SWPB  R0
+0032 0006 D800  38       MOVB  R0,@VDPWA      		* Send low byte of VDP RAM write address
+     0008 8C02     
+0033 000A 06C0  14       SWPB  R0
+0034 000C D800  38       MOVB  R0,@VDPWA         * Send high byte of VDP RAM write address
+     000E 8C02     
+0035 0010 045B  20       RT
+0036               
+0037               *---------------------------------------------
+0038               * Set VDP address from R0
+0039               *---------------------------------------------
+0040               SETUPVDPA
+0041 0012 06C0  14       SWPB  R0
+0042 0014 D800  38       MOVB  R0,@VDPWA      		* Send low byte of VDP RAM write address
+     0016 8C02     
+0043 0018 06C0  14       SWPB  R0
+0044 001A 0260  22       ORI   R0,>4000          * Set read/write bits 14 and 15 to write (01)
+     001C 4000     
+0045 001E D800  38       MOVB  R0,@VDPWA         * Send high byte of VDP RAM write address
+     0020 8C02     
+0046 0022 045B  20       RT
+0047               
+0048               *---------------------------------------------
+0049               * Write VDP register
+0050               *---------------------------------------------
+0051 0024 0260  22 VWREG   ORI R0,>8000
+     0026 8000     
+0052 0028 06C0  14 CMD     SWPB R0
+0053 002A D800  38         MOVB R0,@>8C02
+     002C 8C02     
+0054 002E 06C0  14         SWPB R0
+0055 0030 D800  38         MOVB R0,@>8C02
+     0032 8C02     
+0056 0034 045B  20         B *R11
+0057               
+0058               *---------------------------------------------
+0059               * MAIN
+0060               *---------------------------------------------
+0061 0036 0300  24 MAIN    LIMI 0                 * Disable interrupts
+     0038 0000     
+0062 003A 02E0  18         LWPI WRKSP             * Load the workspace pointer to fast RAM
+     003C 8300     
+0063 003E 0201  20         LI    R1,VDPMODE
+     0040 01E2r    
+0064 0042 D031  28 !       MOVB  *R1+,R0       ; Register number
+0065 0044 06C0  14         SWPB  R0
+0066 0046 D031  28         MOVB  *R1+,R0       ; Data to register
+0067 0048 06C0  14         SWPB  R0
+0068 004A 0280  22         CI    R0,>FFFF
+     004C FFFF     
+0069 004E 1303  14         JEQ   REGS_DONE
+0070 0050 06A0  32         BL    @VWREG
+     0052 0024r    
+0071 0054 10F6  14         JMP   -!
+0072               ; Done. Setup VDP VRAM pointer to zero.
+0073               REGS_DONE
+0074 0056 06A0  32         BL   @COPY_FONTS
+     0058 0178r    
+0075               ; Write a string to VRAM 30 times
+0076 005A 0202  20         LI   R2,0   ; our VRAM destination address
+     005C 0000     
+0077 005E 0203  20         LI   R3,0   ; line counter
+     0060 0000     
+0078               GO:
+0079 0062 C002  18         MOV  R2,R0
+0080 0064 06A0  32         BL   @SETUPVDPA
+     0066 0012r    
+0081 0068 04C0  14         CLR  R0
+0082 006A 0201  20         LI   R1,VDPTEXT
+     006C 01F8r    
+0083 006E D831  48 !       MOVB *R1+,@VDPWD
+     0070 8C00     
+0084 0072 16FD  14         JNE  -!
+0085               ; Write an increasing character at the END
+0086 0074 C103  18         MOV  R3,R4
+0087 0076 06C4  14         SWPB R4
+0088 0078 0224  22         AI   R4,' '*256
+     007A 2000     
+0089 007C D804  38         MOVB R4,@VDPWD
+     007E 8C00     
+0090               
+0091 0080 0222  22         AI   R2,80      ; Advance to next line
+     0082 0050     
+0092               
+0093 0084 0583  14         INC  R3
+0094 0086 0283  22         CI   R3,30
+     0088 001E     
+0095 008A 16EB  14         JNE GO
+0096               
+0097               ; Test the new CPU instruction MOVU and see what happens.
+0098               ; First write some hex test stuff
+0099 008C 0200  20         LI  R0,20
+     008E 0014     
+0100 0090 06A0  32         BL  @SETUPVDPA
+     0092 0012r    
+0101 0094 0200  20         LI  R0,0
+     0096 0000     
+0102 0098 06A0  32         BL  @HEX_R0
+     009A 013Er    
+0103 009C 0200  20         LI  R0,>DEAD
+     009E DEAD     
+0104 00A0 06A0  32         BL  @HEX_R0
+     00A2 013Er    
+0105 00A4 0200  20         LI  R0,>AA55
+     00A6 AA55     
+0106 00A8 06A0  32         BL  @HEX_R0
+     00AA 013Er    
+0107               
+0108               ; Go to next line and test MOVU
+0109 00AC 0200  20         LI  R0,100
+     00AE 0064     
+0110 00B0 06A0  32         BL  @SETUPVDPA
+     00B2 0012r    
+0111 00B4 0203  20         LI  R3,HEXTEXT
+     00B6 0200r    
+0112 00B8 0205  20         LI  R5,0        ; Byte operations
+     00BA 0000     
+0113 00BC 038B             DATA >038B      ; MOVU *R3,R0
+0114 00BE 06A0  32         BL   @HEX_R0
+     00C0 013Er    
+0115 00C2 0583  14         INC  R3
+0116 00C4 038B             DATA >38B       ; MOVU *R3,R0
+0117 00C6 06A0  32         BL   @HEX_R0
+     00C8 013Er    
+0118 00CA 0583  14         INC  R3
+0119 00CC 038B             DATA >38B       ; MOVU *R3,R0
+0120 00CE 06A0  32         BL   @HEX_R0
+     00D0 013Er    
+0121               
+0122 00D2 0205  20         LI  R5,>100     ; Word operations
+     00D4 0100     
+0123 00D6 038B             DATA >38B       ; MOVU *R3,R0
+0124 00D8 06A0  32         BL  @HEX_R0
+     00DA 013Er    
+0125 00DC 0583  14         INC R3
+0126 00DE 038B             DATA >38B       ; MOVU *R3,R0
+0127 00E0 06A0  32         BL  @HEX_R0
+     00E2 013Er    
+0128 00E4 0583  14         INC R3
+0129 00E6 038B             DATA >38B       ; MOVU *R3,R0
+0130 00E8 06A0  32         BL  @HEX_R0
+     00EA 013Er    
+0131 00EC 0583  14         INC R3
+0132 00EE 038B             DATA >38B       ; MOVU *R3,R0
+0133 00F0 06A0  32         BL  @HEX_R0
+     00F2 013Er    
+0134               
+0135 00F4 0202  20         LI  R2,':'*256
+     00F6 3A00     
+0136 00F8 D802  38         MOVB R2,@VDPWD
+     00FA 8C00     
+0137               
+0138                       ; test MOVU *R0,R0
+0139 00FC 0200  20         LI  R0,HEXTEXT+9
+     00FE 0209r    
+0140 0100 0388             DATA >388
+0141 0102 06A0  32         BL  @HEX_R0
+     0104 013Er    
+0142                       ; test MOVU *R1,R0
+0143 0106 0201  20         LI  R1,HEXTEXT+10
+     0108 020Ar    
+0144 010A 0389             DATA >389
+0145 010C C201  18         MOV R1,R8       ; Save to R8, since HEX_R0 will mess up R1
+0146 010E 06A0  32         BL @HEX_R0
+     0110 013Er    
+0147 0112 C008  18         MOV R8,R0
+0148 0114 06A0  32         BL @HEX_R0
+     0116 013Er    
+0149                       ; Display finally base address of HEXTEXT
+0150 0118 0200  20         LI R0,HEXTEXT
+     011A 0200r    
+0151 011C 06A0  32         BL @HEX_R0
+     011E 013Er    
+0152                       ; One more test, with single negative byte, to see sign extension
+0153 0120 0201  20         LI R1,TEST82
+     0122 0212r    
+0154 0124 04C5  14         CLR R5
+0155 0126 0389             DATA >389       ; MOVU *R1,R0
+0156 0128 06A0  32         BL @HEX_R0
+     012A 013Er    
+0157               
+0158               ; Wait a little bit
+0159 012C 0201  20         LI R1,250
+     012E 00FA     
+0160 0130 04C2  14 LP2:    CLR R2
+0161 0132 0602  14 LP1:    DEC R2
+0162 0134 16FE  14         JNE LP1
+0163 0136 0601  14         DEC R1
+0164 0138 16FB  14         JNE LP2
+0165               
+0166               ; Jump back to ROM
+0167 013A 0420  54         BLWP @0
+     013C 0000     
+0168               
+0169               HEX_R0: ; Display contents of R0 in hex.
+0170 013E C080  18         MOV     R0,R2
+0171 0140 09C2  56         SRL     R2,12
+0172 0142 D822  54         MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+     0144 0200r    
+     0146 8C00     
+0173 0148 C080  18         MOV     R0,R2
+0174 014A 0982  56         SRL     R2,8
+0175 014C 0242  22         ANDI    R2,>000F
+     014E 000F     
+0176 0150 D822  54         MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+     0152 0200r    
+     0154 8C00     
+0177 0156 C080  18         MOV     R0,R2
+0178 0158 0942  56         SRL     R2,4
+0179 015A 0242  22         ANDI    R2,>000F
+     015C 000F     
+0180 015E D822  54         MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+     0160 0200r    
+     0162 8C00     
+0181 0164 C080  18         MOV     R0,R2
+0182 0166 0242  22         ANDI    R2,>000F
+     0168 000F     
+0183 016A D822  54         MOVB    @HEXTEXT(R2),@VDPWD     ; Write to VDP memory
+     016C 0200r    
+     016E 8C00     
+0184 0170 D822  54         MOVB    @HEXTEXT+16(R2),@VDPWD  ; write space
+     0172 0210r    
+     0174 8C00     
+0185 0176 045B  20         RT
+0186               
+0187               
+0188               COPY_FONTS:
+0189 0178 C24B  18         MOV R11,R9
+0190               * copy fonts from GROMs to pattern table
+0191 017A 0200  20         LI      R0,>6B4                                         * setup GROM source address of font table
+     017C 06B4     
+0192 017E D800  38         MOVB    R0,@>9C02
+     0180 9C02     
+0193 0182 06C0  14         SWPB    R0
+0194 0184 D800  38         MOVB    R0,@>9C02
+     0186 9C02     
+0195 0188 0200  20         LI      R0,>800+(32*8)          * destination address in VRAM
+     018A 0900     
+0196 018C 06A0  32         BL      @SETUPVDPA
+     018E 0012r    
+0197 0190 0200  20         LI      R0,62                                                   * 62 characters to copy
+     0192 003E     
+0198 0194 04C2  14         CLR     R2
+0199               !ch2
+0200 0196 0201  20         LI      R1,7                                                    * 7 bytes per char
+     0198 0007     
+0201               !char
+0202 019A D820  54         MOVB    @>9800,@VDPWD                   * move byte from GROM to VDP
+     019C 9800     
+     019E 8C00     
+0203 01A0 0601  14         DEC     R1
+0204 01A2 16FB  14         JNE     -!char
+0205 01A4 D802  38         MOVB    R2,@VDPWD                                 * 8th byte just zero
+     01A6 8C00     
+0206 01A8 0600  14         DEC     R0
+0207 01AA 16F5  14         JNE     -!ch2
+0208 01AC 0459  20         B       *R9
+0209               
+0210 01AE 4D41             TEXT   'MARKER'
+     01B0 524B     
+     01B2 4552     
+0211               ; test code to go to ROM 07E0 to handle VDP indirect / direct access using my custom instruction.
+0212               label_07e0:
+0213 01B4 130F  14         JEQ     do_indirect
+0214               do_job:
+0215 01B6 05C4  14         INCT    R4
+0216 01B8 D7E0  46         MOVB    @>83E3,*R15         ; Write address VDP
+     01BA 83E3     
+0217 01BC D7C1  30         MOVB    R1,*R15
+0218 01BE 0A80  56         SLA     R0,8
+0219 01C0 D02F  34         MOVB    @>FBFE(R15),R0      ; Data in R0
+     01C2 FBFE     
+0220 01C4 D145  18         MOVB    R5,R5              ; Word?
+0221 01C6 1304  14         JEQ     do_byte
+0222 01C8 D82F  54         MOVB    @>FBFE(R15),@>83E1  ; 2nd byte in R
+     01CA FBFE     
+     01CC 83E1     
+0223 01CE 045B  20         B       *R11
+0224               do_byte:
+0225 01D0 0880  56         SRA     R0,8
+0226 01D2 045B  20         B       *R11
+0227               
+0228               do_indirect:
+0229 01D4 D021  34         MOVB @>8300(R1),R0          ; Fetch value
+     01D6 8300     
+0230 01D8 D821  54         MOVB @>8301(R1),@>83E1
+     01DA 8301     
+     01DC 83E1     
+0231 01DE C040  18         MOV  R0,R1                  ; Value in R1
+0232 01E0 10EA  14         jmp  do_job
+0233               
+0234               
+0235 01E2 0004     VDPMODE BYTE 0,>04  ; 04=80 columns mode >00
+0236 01E4 01F0             BYTE 1,>F0
+0237 01E6 0200             BYTE 2,>00
+0238 01E8 030E             BYTE 3,>0E
+0239 01EA 0401             BYTE 4,>01
+0240 01EC 0506             BYTE 5,>06
+0241 01EE 0600             BYTE 6,>00
+0242 01F0 07F4             BYTE 7,>F4
+0243 01F2 3FFF             BYTE 63,>FF ; Enable 9938 MODE
+0244 01F4 0980             BYTE 9,>80  ; 26.5 lines mode
+0245               ;        BYTE 49,>40  ; F18A 30 lines mode
+0246 01F6 FFFF             BYTE >FF,>FF
+0247               
+0248                   EVEN
+0249 01F8 4845     VDPTEXT TEXT 'HELLO'
+     01FA 4C4C     
+     01FC 4F       
+0250 01FD   00             BYTE 0,0,0
+     01FE 0000     
+0251 0200 3031     HEXTEXT TEXT '0123456789ABCDEF '
+     0202 3233     
+     0204 3435     
+     0206 3637     
+     0208 3839     
+     020A 4142     
+     020C 4344     
+     020E 4546     
+     0210 20       
+0252                       EVEN
+0253 0212 8200     TEST82  BYTE >82,0
+0254               
+0255                       END MAIN

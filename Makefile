@@ -15,6 +15,7 @@ ECPPACK = ecppack
 ICEPACK_ICE40 = icepack
 endif
 
+HOSTNAME := $(shell hostname)
 
 # TI-99/4A FGPA implementation for various FPGA boards.
 VERILOGS = src/ram2.v \
@@ -24,7 +25,6 @@ VERILOGS = src/ram2.v \
  src/xmemctrl.v src/gromext.v \
  src/serloader.v src/serial_rx.v \
  src/serial_tx.v src/spi_slave.v src/tms9901.v \
- src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v \
  src/dualport_par.v src/ps2kb.v \
  src/tms9919.v src/pager612.v
 
@@ -36,7 +36,10 @@ TIPI_VERILOGS = \
 	tipi/shift_sin_pout.v \
 	tipi/tristate_8bit.v 
 
-all: ti994a_ulx3s.bit
+LCD_VERILOGS = \
+	src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v 
+
+all: $(HOSTNAME)/ti994a_ulx3s.bit
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
 	yosys  -q -DEXTERNAL_VRAM -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v
@@ -82,20 +85,27 @@ VERILOGS_ULX3S = \
  osd/spi_ram_btn.v \
  osd/spirw_slave_v.v 
  
-ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) Makefile 
-	$(YOSYS) -q -DUSE_SDRAM -DLCD_SUPPORT \
-		-p "synth_ecp5 -abc9 -json ti994a_ulx3s.json" \
-		$(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)
+$(HOSTNAME)/ti994a_ulx3s.json: $(VERILOGS) $(VERILOGS_ULX3S) $(TIPI_VERILOGS) $(LCD_VERILOGS) Makefile 
+	@mkdir -p $(@D)
+	$(YOSYS) \
+		-p "read -sv $(VERILOGS_ULX3S) rom16.v $(VERILOGS) $(TIPI_VERILOGS)" \
+		-p "hierarchy -top top_ulx3s" \
+		-p "synth_ecp5 -abc9 -json $@" 
+	# these moved to top_ulx3s.v
+	#  -DTIPI_SUPPORT -DLCD_SUPPORT -q -DUSE_SDRAM 
 
-ti994a_ulx3s.bit: Makefile ti994a_ulx3s.json
-	$(NEXTPNR_ECP5) --85k --package CABGA381 --json ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg ti994a_ulx3s_out.cfg	
-	$(ECPPACK) --compress ti994a_ulx3s_out.cfg ti994a_ulx3s.bit
 
+$(HOSTNAME)/ti994a_ulx3s.bit: Makefile $(HOSTNAME)/ti994a_ulx3s.json
+	$(NEXTPNR_ECP5) --85k --package CABGA381 --json $(HOSTNAME)/ti994a_ulx3s.json --lpf ulx3s.lpf --textcfg $(HOSTNAME)/ti994a_ulx3s_out.cfg 
+	# --lpf-allow-unconstrained
+	# $(ECPPACK) --compress $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
+	$(ECPPACK) --compress --freq 62.0 $(HOSTNAME)/ti994a_ulx3s_out.cfg $@
+	
 
 clean:
 	rm -f erik9900.blif erik9900.txt erik9900.bin next9900.bin next9900.asc next9900.json 
 	rm -f flea.json flea_ohm.bit 
-	rm -f ti994a_ulx3s.bit ti994a_ulx3s.json
+	rm -f $(HOSTNAME)/ti994a_ulx3s.bit $(HOSTNAME)/ti994a_ulx3s.json
 
 .PHONY: clean
 .PHONY: erik9900

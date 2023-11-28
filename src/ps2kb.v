@@ -79,9 +79,10 @@ module ps2matrix(
   input wire clk,
   input wire ps2clk, ps2data,
   input wire [2:0] line_sel,
-  output reg [7:0] keyline,  // 8 bits out
+  output reg [7:0] keyline,   // 8 bits out
 
-  output wire f1_pressed,    // 1=F1 is pressed
+  output wire f1_pressed,     // 1=F1 is pressed
+  output wire f9_pressed,     // 1=F9 is pressed
   // bit order matches ULX3S: MSB->LSB: right, left, down, up
   output wire [3:0] cursor_keys_pressed 
 );
@@ -102,6 +103,8 @@ module ps2matrix(
 
   reg f1_state = 1'b0;
   assign f1_pressed = f1_state;
+  reg f9_state = 1'b0;
+  assign f9_pressed = f9_state;
   assign cursor_keys_pressed = cursor_keys_state;
   reg [3:0] cursor_keys_state = 4'b0000;
 
@@ -168,6 +171,7 @@ module ps2matrix(
 */
         case (decode)
           8'h05:     f1_state <= !action; // F1 key
+          8'h01:     f9_state <= !action; // F9 key
           8'h16: matrix[5][4] <= action; // 1
           8'h1e: matrix[1][4] <= action; // 2
           8'h26: matrix[2][4] <= action; // 3

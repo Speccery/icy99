@@ -107,6 +107,15 @@ class ld_ti99_4a:
       bytes_saved += len(block)
     self.cs.off()
 
+  def read_bytes(self, addr=0x1000000, length=32):
+    block = bytearray(length)
+    # Request save
+    self.cs.on()
+    self.spi.write(bytearray([1,(addr >> 24) & 0xFF, (addr >> 16) & 0xFF, (addr >> 8) & 0xFF, addr & 0xFF, 0]))
+    self.spi.readinto(block)
+    self.cs.off()
+    return block
+
   def ctrl(self,i):
     self.cs.on()
     self.spi.write(bytearray([0, 0x01, 0x00, 0x00, 0x08, i, i]))
