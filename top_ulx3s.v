@@ -5,9 +5,12 @@
 // implements the TI-99/4A.
 
 // The following macros enable placement of ROM contents to SDRAM to save internal block RAM.
+`ifdef USE_SDRAM
+// If SDRAM is not configured, everything must be internally stored.
 `define CONSOLE_GROM_IN_SDRAM 1   // 24K
 `define CART_GROM_IN_SDRAM    1   // 32K
 `define CONSOLE_ROM_IN_SDRAM  1   // 8K
+`endif
 
 //`define TIPI_SUPPORT          1   // Raspberry PI interface
 //`define LCD_SUPPORT           1   // ST7789 LCD
@@ -255,9 +258,10 @@ module top_ulx3s
   wire pad_sel = (ADR[22: 9] == 14'b0000_0000_1000_00);//  1K @ 08000 
 `endif
   wire gro_sel = (ADR[22:15] == 8'b0000_0001);        // 64K @ 10000 (actually 56K)
-  `ifdef EXTERNAL_VRAM
+`ifdef EXTERNAL_VRAM
   wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
-  `endif  
+`endif  
+
   // ram_sel is for RAM extension. 32K of RAM, 8K @ 2000 and 24K @ A000.
   wire ram_sel = (ADR[22:12] == 11'b0000_0000_001)    // 2000..3FFF 
               || (ADR[22:12] == 11'b0000_0000_101)    // A000..BFFF
@@ -431,7 +435,7 @@ module top_ulx3s
     grom_ext_sel ? grom_ext_out :           // Cartridge GROM 32K
 `endif
     ram_sel ? ram_expansion_out :
-    16'h0000;
+    16'h0001;  // 0001 if nothing selected
 
   // VGA
   wire [3:0] red, green, blue;
@@ -534,6 +538,7 @@ module top_ulx3s
     .sram_pins_drive(sram_pins_drive),
     .memory_busy(memory_busy), 
     .use_memory_busy(use_memory_busy),
+    .romsel(rom_sel), // EPEP debugging - goes to tracebuf
     .red(red), .green(green), .blue(blue),
     .hsync(hsync), .vsync(vsync), .vde(vde), // video display enable signal
     .cpu_reset_switch_n(R_btn_resetn),  // cpu_reset_switch_n

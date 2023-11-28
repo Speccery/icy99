@@ -451,6 +451,27 @@ class osd:
     self.init_spi()
     gc.collect()
 
+  def dump_mem(self, addr,length):
+    import ld_ti99_4a
+    old_freq = self.spi_freq
+    self.spi_freq = const(100000)
+    self.init_spi()
+    s=ld_ti99_4a.ld_ti99_4a(self.spi, self.cs)
+    print("Dumping from {a:04X} len {b:04X}".format(a=addr, b=length))
+    r=s.read_bytes(addr, length)
+    del s
+    self.spi_freq = old_freq
+    self.init_spi()
+    cnt=0
+    for x in r:
+      print("{a:02X} ".format(a=x), end="")
+      cnt += 1
+      if cnt == 8:
+        print()
+        cnt=0
+    gc.collect()
+
+
 # FPGA init function not part of class.
 def load_fpga(fname):
   if len(fname) == 0:

@@ -4,6 +4,8 @@
 // This is a platform neutral implementation of the TI-99/4A.
 // It needs to be included into a toplevel file for a given FPGA platform.
 
+`define TRACEBUFFER 1
+
 module sys
 #(parameter mem_supports_byte_writes=1,
   parameter external_bl32=0) 
@@ -24,6 +26,7 @@ module sys
     output sram_pins_drive,
     input wire memory_busy,      // if set memory is busy, wait a cycle
     input wire use_memory_busy,  // if set memory_busy signal above is valid
+    input wire romsel,  // for debugging
     // Video output signals
     output wire [3:0] red, 
     output wire [3:0] green, 
@@ -224,10 +227,15 @@ module sys
  // Data is CPU databus in for reads and databus out for writes.
  wire trace_we = rd_now || wr;
  reg last_trace_we = 1'b0;
- wire [35:0] trace_data_in = { iaq, int_req, wr, rd, wr ? db_out : db_in, ab};
- wire [35:0] trace_data_out;
- dualport_par #(36,8) tracebuf(clk, trace_we, trace_addr, trace_data_in, clk, bootloader_addr[10:3], trace_data_out);
-
+ wire [35:0] trace_data_in1 = { iaq, int_req, wr, rd, wr ? db_out : db_in, ab};
+ wire [35:0] trace_data_out1;
+ dualport_par #(36,8) tracebuf1(clk, trace_we, trace_addr, trace_data_in1, clk, bootloader_addr[11:4], trace_data_out1);
+ // debug 2023-11-28 grom_selected stays zero for ROM, nxRAMCE and romsel look good. grom_selected and sams_rd are ok.
+ // wire [35:0] trace_data_in2 = { romsel, nxRAMCE, sams_rd, grom_selected, xram_o, sram_pins_din };
+ wire [35:0] trace_data_in2 = { romsel, nxRAMCE, vdp_rd, grom_reg_out,    ADR[22:7], xram_o };
+ wire [35:0] trace_data_out2;
+dualport_par #(36,8) tracebuf2(clk, trace_we, trace_addr, trace_data_in2, clk, bootloader_addr[11:4], trace_data_out2);
+ 
  always @(posedge clk) begin
   last_trace_we <= trace_we;
   if (last_trace_we && !trace_we)
@@ -465,9 +473,9 @@ tms9918 vdp(
         2'b11: bootloader_write_ack2 <= 1'b1;
       endcase
     end else if(bootloader_read_rq  && bootloader_addr[24]==1'b1) begin
-      casez(bootloader_addr[11:0])
+      casez(bootloader_addr[12:0])
       // Keyboard matrix readback
-      12'b0000_0000_0???: 
+      13'b0_0000_0000_0???: 
         begin
             case(bootloader_addr[2:0])
             3'd0: bootloader_readback_reg <= keyboard0;
@@ -481,21 +489,33 @@ tms9918 vdp(
             endcase
         end
       // Reset control readback, cpu history registers
-      12'b0000_0000_100?: bootloader_readback_reg <= cpu_reset_ctrl;
-      12'b0000_0000_1010: bootloader_readback_reg <= cpu_ir[15:8];
-      12'b0000_0000_1011: bootloader_readback_reg <= cpu_ir[7:0];
-      12'b0000_0000_1100: bootloader_readback_reg <= cpu_ir_pc[15:8];
-      12'b0000_0000_1101: bootloader_readback_reg <= cpu_ir_pc[7:0];
-      12'b0000_0000_1110: bootloader_readback_reg <= cpu_ir_pc2[15:8];
-      12'b0000_0000_1101: bootloader_readback_reg <= cpu_ir_pc2[7:0];
-      // Tracebuffer, it has 256 entries, each entry is 8 bytes
-      12'b1???_????_?00?: bootloader_readback_reg <= 8'h00;
-      12'b1???_????_?010: bootloader_readback_reg <= trace_addr;
-      12'b1???_????_?011: bootloader_readback_reg <= { 4'h0, trace_data_out[35:32] }; // control signals
-      12'b1???_????_?100: bootloader_readback_reg <= trace_data_out[31:24];           // data high
-      12'b1???_????_?101: bootloader_readback_reg <= trace_data_out[23:16];           // data low
-      12'b1???_????_?110: bootloader_readback_reg <= trace_data_out[15:8];            // addr high
-      12'b1???_????_?111: bootloader_readback_reg <= trace_data_out[7:0];             // addr low
+      13'b0_0000_0000_100?: bootloader_readback_reg <= cpu_reset_ctrl;
+      13'b0_0000_0000_1010: bootloader_readback_reg <= cpu_ir[15:8];
+      13'b0_0000_0000_1011: bootloader_readback_reg <= cpu_ir[7:0];
+      13'b0_0000_0000_1100: bootloader_readback_reg <= cpu_ir_pc[15:8];
+      13'b0_0000_0000_1101: bootloader_readback_reg <= cpu_ir_pc[7:0];
+      13'b0_0000_0000_1110: bootloader_readback_reg <= cpu_ir_pc2[15:8];
+      13'b0_0000_0000_1111: bootloader_readback_reg <= cpu_ir_pc2[7:0];
+
+      13'b0_0000_0001_???0: bootloader_readback_reg <= 8'hAA;   // ID bytes, does this work at all?
+      13'b0_0000_0001_???1: bootloader_readback_reg <= 8'h55;
+
+      // Tracebuffer, it has 256 entries, each entry is 16 bytes, total size thus 4K
+      13'b1_0???_????_000?: bootloader_readback_reg <= 8'h00;
+      13'b1_0???_????_0010: bootloader_readback_reg <= trace_addr;
+      13'b1_0???_????_0011: bootloader_readback_reg <= { 4'h0, trace_data_out1[35:32] }; // control signals
+      13'b1_0???_????_0100: bootloader_readback_reg <= trace_data_out1[31:24];           // data high
+      13'b1_0???_????_0101: bootloader_readback_reg <= trace_data_out1[23:16];           // data low
+      13'b1_0???_????_0110: bootloader_readback_reg <= trace_data_out1[15:8];            // addr high
+      13'b1_0???_????_0111: bootloader_readback_reg <= trace_data_out1[7:0];             // addr low
+
+      13'b1_0???_????_100?: bootloader_readback_reg <= 8'h01;                            // Flag for upper trace signals
+      13'b1_0???_????_1010: bootloader_readback_reg <= trace_addr;
+      13'b1_0???_????_1011: bootloader_readback_reg <= { 4'h0, trace_data_out2[35:32] }; // control signals
+      13'b1_0???_????_1100: bootloader_readback_reg <= trace_data_out2[31:24];           // xram_o high
+      13'b1_0???_????_1101: bootloader_readback_reg <= trace_data_out2[23:16];           // xram_o low
+      13'b1_0???_????_1110: bootloader_readback_reg <= trace_data_out2[15:8];            // sram_pins_din high
+      13'b1_0???_????_1111: bootloader_readback_reg <= trace_data_out2[7:0];             // sram_pins_din low
       endcase
       bootloader_read_ack2 <= 1'b1; // Note: returned data is just shit
     end 
@@ -744,6 +764,7 @@ tms9918 vdp(
   );
 `else
 assign tipi_enabled = 1'b0;
+assign tipi_ioreg_en = 1'b1;  // Without TIPI the IO registers are disabled
 `endif
 
   // SAMS memory paging unit.
