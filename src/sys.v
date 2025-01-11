@@ -552,13 +552,13 @@ tms9918 vdp(
   reg [7:0] cart_page = 8'd0;
   // Paged cartridge area at address 2M. Support for 256 pages.
   // The size is thus 256*8K = 2M megs.
-  wire [22:0] x_cart_addr     = {3'b001, cart_page, ab[12:1]};     
-  wire [22:0] x_grom_addr     = {8'b0000_0001, grom_addr[15:1] };   // address of GROM in external memory
-  wire [22:0] x_cpu_addr      = {8'b0000_0000, ab[15:1] };          // CPU RAM in external memory
+  wire [22:0] x_cart_addr     = {3'b001, cart_page, ab[12:1]};            // Cartridge memory (outside blackice II 512K memory)
+  wire [22:0] x_grom_addr     = {8'b0000_0001, grom_addr[15:1] };         // address of GROM in external memory
+  wire [22:0] x_cpu_addr      = {8'b0000_0000, ab[15:1] };                // CPU RAM in external memory (ROM 0..1FFF)
   wire [22:0] x_tipi_dsr_addr = {9'b0000_0011_0, tipi_page[1:0], ab[12:1] };  // 32K TIPI ROM at 30000
-  wire [22:0] x_window_addr   = {mem_window_reg, ab[7:1] };         // A window to all memory, 256 bytes at 8500
+  wire [22:0] x_window_addr   = {mem_window_reg, ab[7:1] };               // A window to all memory, 256 bytes at 8500
   wire [22:0] x_sams_addr     = {4'b0001, sams_addr_out[7:0], ab[11:1] }; // SAMS memory at 1 Megabyte
-  wire [22:0] x_bios_addr     = {11'b0000_0010_000 , ab[12:1] };    // 8K BIOS at 20000 
+  wire [22:0] x_bios_addr     = {11'b0000_0010_000 , ab[12:1] };          // 8K BIOS at 20000 
   
   always @(posedge clk)
   begin

@@ -261,14 +261,194 @@ int main(int argc, char *argv[])
   // macOS USB example:          "/dev/cu.usbmodem001234562"
   // Cygwin example:             "/dev/ttyS7"
   const char * device = "/dev/ttyACM0";
-  if(argc > 1)
-    device = argv[1];
+  int verbose = 0;
+  if(verbose) printf("argc %d\n", argc);
+  int argi = 1;
+  if(argc > 1) {
+    device = argv[argi++];
+  }
  
   uint32_t baud_rate = 230400;
  
-  printf("open_serial_port\n");
+  if(verbose) printf("open_serial_port\n");
   int fd = open_serial_port(device, baud_rate);
   if (fd < 0) { return 1; }
+
+  int in_sync = 0;
+  for(int tries = 0; tries < 512; tries++) {
+    if(try_sync(fd)) {
+      if(verbose || tries > 0) printf("Sync succeeded\n");
+      in_sync = 1;
+      break;
+    } else {
+      fprintf(stderr, "Sync failed, retrying %d\n", tries);
+    }
+  }
+  if(!in_sync) {
+    fprintf(stderr, "Sync failed, exiting.\n");
+    close(fd);
+    return 1;
+  }
+
+  // Parse command line arguments
+  // argv[argi] == -w or -r for write and read respectively
+  // argv[argi+1] == filename
+  // argv[argi+2] == address (in hex)
+  // argv[argi+3] == length
+  enum { MODE_NONE, MODE_WRITE, MODE_READ, MODE_GET_ADDR, MODE_POKE } mode = MODE_NONE;
+  // Parse options i.e. strings beginning with '-'
+  while(argi < argc && argv[argi][0] == '-') {
+    if(!strcmp(argv[argi], "-w")) {
+      mode = MODE_WRITE;
+    } else if(!strcmp(argv[argi], "-r")) {
+      mode = MODE_READ;
+    }  else if(!strcmp(argv[argi], "-a")) {
+      mode = MODE_GET_ADDR;
+    }  else if(!strcmp(argv[argi], "-p")) {
+      mode = MODE_POKE;
+    } else {
+      fprintf(stderr, "Invalid option %s\n", argv[argi]);
+      close(fd);
+      return 1;
+    }
+    argi++;
+  }
+  if(mode == MODE_NONE) {
+    fprintf(stderr, "No mode specified\n");
+    close(fd);
+    return 1;
+  }
+  if(mode == MODE_GET_ADDR) {
+    int ok = 0;
+    unsigned addr = read_hw_address(fd, &ok);
+    if(ok) {
+      printf("HW address: %X\n", addr);
+    } else {
+      fprintf(stderr, "Failed to read HW address\n");
+    }
+    close(fd);
+    return 0;
+  } else if (mode == MODE_POKE) {
+    if(argi + 1 >= argc) {
+      fprintf(stderr, "Not enough arguments\n");
+      close(fd);
+      return 1;
+    }
+    unsigned addr;
+    if(sscanf(argv[argi++], "%x", &addr) != 1) {
+      fprintf(stderr, "Invalid address\n");
+      close(fd);
+      return 1;
+    }
+    setup_hw_address(fd, addr);
+    // read hex argument bytes and write them to the address
+    while(argi < argc) {
+      unsigned byte;
+      if(sscanf(argv[argi++], "%x", &byte) != 1) {
+        fprintf(stderr, "Invalid byte\n");
+        close(fd);
+        return 1;
+      }
+      uint8_t buf[1] = { byte };
+      write_memory_block(fd, buf, addr++, 1);
+    }
+    close(fd);
+    return 0;
+  }
+  if(argi + 2 >= argc) {
+    fprintf(stderr, "Not enough arguments\n");
+    close(fd);
+    return 1;
+  }
+  const char *filename = argv[argi++];
+  unsigned address;
+  if(sscanf(argv[argi++], "%x", &address) != 1) {
+    fprintf(stderr, "Invalid address\n");
+    close(fd);
+    return 1;
+  } else {
+    if(verbose) printf("Address: %X\n", address);
+  }
+  int length;
+  if(sscanf(argv[argi++], "%d", &length) != 1) {
+    fprintf(stderr, "Invalid length\n");
+    close(fd);
+    return 1;
+  } else {
+    if(verbose) printf("Length: %d\n", length);
+  }
+  if(mode == MODE_WRITE) {
+    FILE *f = fopen(filename, "rb");
+    if(!f) {
+      fprintf(stderr, "Unable to open source file\n");
+      close(fd);
+      return 1;
+    } else {
+      if(verbose) printf("Opened source file %s\n", filename);
+    }
+    uint8_t buf[1024];
+    int total = 0;
+    int n;
+    do {
+      int bytes_to_read = total + sizeof(buf) > length ? length - total : sizeof(buf);
+      n = fread(buf, sizeof(uint8_t), bytes_to_read, f);
+      if(n < bytes_to_read && n != 0) {
+        length = total + n;
+        printf("Short read, adjusting length to %d\n", length);
+      }
+      if(n > 0) {
+        int r = write_memory_block(fd, buf, address, n);
+        if(r < 0) {
+          fprintf(stderr, "write_memory_block failed %d\n", r);
+          fclose(f);
+          close(fd);
+          return 1;
+        } else {
+          printf("Wrote %d bytes at address %X\n", n, address);
+        }
+        address += n;
+        total += n;
+      }
+    } while(n > 0);
+    printf("load_file done, wrote %d bytes, final address %X\n", total, address);
+  } else if(mode == MODE_READ) {
+    // Read memory blocks in chunks of a maximum of 1024 bytes
+    uint8_t buf[1024];
+    FILE *f = fopen(filename, "wb");
+    if(!f) {
+      fprintf(stderr, "Unable to open destination file\n");
+      close(fd);
+      return 1;
+    } else {
+      printf("Opened destination file %s\n", filename);
+      unsigned read = 0;
+      while(read < length) {
+        int chunk = length - read;
+        if(chunk > 1024) {
+          chunk = 1024;
+        }
+        read_memory_block(fd, buf, address, chunk);
+        fwrite(buf, sizeof(uint8_t), chunk, f);
+        read += chunk;
+        address += chunk;
+      }
+      fclose(f);
+    }
+  }
+  // Check that we are still in sync
+  if(try_sync(fd)) {
+    if(verbose) printf("Sync succeeded\n");
+  } else {
+    fprintf(stderr, "Sync failed at the end, exiting.\n");
+    close(fd);
+    return 1;
+  }
+
+  close(fd);
+  return 0;
+
+
+
  
  
   if(argc > 3 && !strcmp(argv[2], "-l")) {
@@ -291,7 +471,9 @@ int main(int argc, char *argv[])
     unsigned a = read_hw_address(fd, &ok);
     printf("hw addr=0x%X ok=%d\n", a, ok);
     printf("Repeat counter: %d\n", get_repeat_counter_16(fd));
-    setup_hw_address(fd, 0x123456);
+    unsigned addr = 0x123456;
+    printf("Write hw_address %08X\n", addr);
+    setup_hw_address(fd, addr);
     set_repeat_counter_16(fd, 0x2112);
     a = read_hw_address(fd, &ok);
     printf("hw addr=0x%X ok=%d\n", a, ok);

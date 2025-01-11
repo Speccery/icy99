@@ -1,0 +1,9 @@
+rom-read.bin
+_regs.bin
+_tb-2.bin
+tb-first-72bit.bin
+tb-int_equals_nxRAMCE.bin
+tb-int_equals_romsel.bin
+tb.bin
+tb1.bin
+__pycache__
