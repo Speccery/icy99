@@ -63,6 +63,9 @@ $(HOSTNAME)/next9900.asc: $(HOSTNAME)/next9900.json
 $(HOSTNAME)/next9900.bin: $(HOSTNAME)/next9900.asc
 	$(ICEPACK_ICE40) $< $@
 
+prog-fpga:
+	cat $(HOSTNAME)/next9900.bin > /dev/cu.usbmodem00000000001A1
+
 loadroms:
 	../tools/serialtool /dev/cu.usbserial-21230 -w ../roms/994aROM.Bin 0 50000
 	../tools/serialtool /dev/cu.usbserial-21230 -w ../roms/994agROM.Bin 10000 50000

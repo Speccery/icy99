@@ -89,7 +89,9 @@ localparam
     do_div4=7'd88,              do_div5=7'd89,
     do_process_branch=7'd90,    do_mul0=7'd91,
     do_mul1=7'd92,              do_mul2=7'd93,
-    do_mul3=7'd94,              do_mul4=7'd95,
+    do_mul3=7'd94,              do_mul4=7'd95
+`ifdef EXPERIMENTAL_GPL_SUPPORT    
+    ,
     // GPL macroinstruction
     do_gpl0=7'd96,              
     do_gpl1=7'd97,
@@ -123,6 +125,7 @@ localparam
     do_gpl_inct_R4_0=7'd122,
     do_gpl_077E=7'd123,
     do_gosuble=7'd124
+`endif    
     ;
 
 localparam fetch_sub1=2'd1, fetch_sub2=2'd2, fetch_sub3=3'd3;
@@ -180,9 +183,11 @@ reg [15:0] pc_ir, pc_ir2;
 `endif
 reg executing_x = 1'b0;
 
+`ifdef EXPERIMENTAL_GPL_SUPPORT
 reg gpl_word_flag;   // GPL fetch byte/word operation selection bit.
 reg gpl_word_flag_save; // Store gpl_word_flag_save.
 reg [7:0] gpl_amod;
+`endif
 
 assign ir_out = ir;
 `ifdef PCIR_SUPPORT
@@ -511,10 +516,12 @@ begin
                 end
             do_write0:
                 begin 
+`ifdef EXPERIMENTAL_GPL_SUPPORT                    
                     // GPL acceleration: if a store to R5 occurs
                     // save bit 8 (LSB of high byte). This is the word/byte flag.
                     if ({addr[15:1], 1'b0 } == 16'h83EA)
                         gpl_word_flag <= wr_dat[8];
+`endif                        
 
                     cpu_state <= do_write1; 
                     as <= 1'b0;
@@ -623,18 +630,23 @@ begin
                             //               0382 = GPLS2   - Routine from 077E
                             //               0388..038F = MOVU *RX,R0  - Unaligned load, X=0..7, width 8/16 bits depending on gpl_word_flag
                             arg1 <= { 1'b0, w };
+                            ope <= alu_add;	
+`ifdef EXPERIMENTAL_GPL_SUPPORT                            
                             arg2 <= { 11'b0000_0000_000, 
                                 ir[3] == 1'b1 ? 4'h5 :          // MOVU: register 5
                                     ir[2:0] == 3'b010 ? 4'h1 :  // GPLS2: register 1
                                     4'hD,                       // GPLS: register 13
                                 1'b0 };  
-                            ope <= alu_add;	
                             // If this is RTWP, go to do_rtwp0, if it is GPLS/GPLS2/MOVU, go to GPL routines via reading a register
                             cpu_state <= ir[3:0] == 4'h0 ? do_rtwp0 : do_alu_read;
                             // Setup cpu_state_next for GPL instructions.
                             cpu_state_next <= ir[3] == 1'b1 ? do_movu00 :   // MOVU
                                      ir[2:0] == 3'b010 ? do_gpl_077E :      // GPLS2
                                      do_gpl0 ;                              // GPLS
+`else
+                            arg2 <= { 11'b0000_0000_000, 4'hD, 1'b0 };  // calculate address of register 13 (WP)
+                            cpu_state <= do_rtwp0;
+`endif                                                                          
                         end else if (ir[15:8] == 8'h1D  || // SBO
                                 ir[15:8] == 8'h1E  || // SBZ
                                 ir[15:8] == 8'h1F)  // TB
@@ -1133,7 +1145,7 @@ begin
                     st <= rd_dat;			// ST from previous R15
                     cpu_state <= do_fetch;
                 end
-
+`ifdef EXPERIMENTAL_GPL_SUPPORT
             //-----------------------------------------------------------
             // GPL macroinstruction to decode GPL addresses. 
             // Implements part of subroutine at ROM address 077A
@@ -1536,7 +1548,7 @@ begin
                     end
                     cpu_state <= cpu_state_gpl_return;
                 end
-                
+`endif                
             //-----------------------------------------------------------
             // All shift instructions
             //-----------------------------------------------------------					
