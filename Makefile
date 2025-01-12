@@ -39,7 +39,8 @@ TIPI_VERILOGS = \
 LCD_VERILOGS = \
 	src/lcd_sys.v lcd/pmodoledrgb_controller.v lcd/ram_source.v 
 
-all: $(HOSTNAME)/ti994a_ulx3s.bit
+# all: $(HOSTNAME)/ti994a_ulx3s.bit
+all: $(HOSTNAME)/next9900.bin
 
 erik9900.blif: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
 	yosys  -q -DEXTERNAL_VRAM -p "synth_ice40 -top top_blackice2 -abc2 -blif erik9900.blif" $(VERILOGS) top_blackice2.v
@@ -53,14 +54,14 @@ erik9900.bin: erik9900.txt
 	# icemulti -p0 erik9900.bin > erik9900.bin && rm j1a0.bin
 
 # NEXTPNR ROUTING
-next9900.json: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
-	$(YOSYS)  -q  -DEXTERNAL_VRAM -p 'synth_ice40 -json next9900.json -top top_blackice2 -blif next9900.blif' $(VERILOGS) top_blackice2.v
+$(HOSTNAME)/next9900.json: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
+	$(YOSYS)  -q  -DEXTERNAL_VRAM -p 'synth_ice40 -json $@ -top top_blackice2 -blif $(HOSTNAME)/next9900.blif' $(VERILOGS) top_blackice2.v
 
-next9900.asc: next9900.json 
-	$(NEXTPNR_ICE40) --hx8k --asc next9900.asc --json next9900.json --package tq144:4k --pcf blackice-ii.pcf --pcf-allow-unconstrained
+$(HOSTNAME)/next9900.asc: $(HOSTNAME)/next9900.json 
+	$(NEXTPNR_ICE40) --hx8k --asc $@ --json $< --package tq144:4k --pcf blackice-ii.pcf --pcf-allow-unconstrained
 
-next9900.bin: next9900.asc
-	$(ICEPACK_ICE40) next9900.asc next9900.bin
+$(HOSTNAME)/next9900.bin: $(HOSTNAME)/next9900.asc
+	$(ICEPACK_ICE40) $< $@
 
 
 # ECP5 FleaFPGA Ohm

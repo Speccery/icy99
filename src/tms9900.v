@@ -10,6 +10,9 @@
 // Since this is the second pass of the code, I also will try to improve the
 // design for readability.
 
+
+// `define PCIR_SUPPORT 1  // For debugging purposes.
+
 module tms9900(
     input clk, 
     input reset,
@@ -146,11 +149,6 @@ assign addr_out = addr;
 assign data_out = wr_dat;
 
 alu9900 alu(
-    // arg1, arg2, ope, alu_compare,
-    // alu_result_d, 
-    // alu_lgt_d, alu_agt_d, 
-    // alu_flag_zero_d, alu_flag_carry_d,alu_flag_overflow_d, 
-    // alu_flag_parity_d, alu_flag_parity_source_d
     .arg1(arg1), .arg2(arg2), .ope(ope), .alu_result(alu_result),
     .compare(alu_compare),
     .alu_logical_gt(alu_logical_gt), .alu_arithmetic_gt(alu_arithmetic_gt),
@@ -177,7 +175,9 @@ reg [1:0] fetch_substate;
 reg add_to_pc;
 reg [15:0] ir;
 reg [4:0] shift_count;
+`ifdef PCIR_SUPPORT
 reg [15:0] pc_ir, pc_ir2;   
+`endif
 reg executing_x = 1'b0;
 
 reg gpl_word_flag;   // GPL fetch byte/word operation selection bit.
@@ -185,8 +185,13 @@ reg gpl_word_flag_save; // Store gpl_word_flag_save.
 reg [7:0] gpl_amod;
 
 assign ir_out = ir;
+`ifdef PCIR_SUPPORT
 assign pc_ir_out = pc_ir;
 assign pc_ir_out2 = pc_ir2;
+`else
+assign pc_ir_out = 16'h0000;
+assign pc_ir_out2 = 16'h0000;
+`endif
 
 reg [7:0] cru_delay_spec = 8'h02;
 
@@ -571,8 +576,10 @@ begin
                         delay_count = 8'd0;
                         rd_now <= 0;
                         rd <= 0;
+`ifdef PCIR_SUPPORT                        
                         pc_ir2 <= pc_ir;                    // also retain earlier pc_ir
                         pc_ir <= pc;						// store increment PC for debug purposes
+`endif                        
                         // rest of decode process.
                         operand_word <= 1;			// By default 16-bit operations.
                         iaq <= 0;

@@ -4,7 +4,11 @@
 // This is a platform neutral implementation of the TI-99/4A.
 // It needs to be included into a toplevel file for a given FPGA platform.
 
-`define TRACEBUFFER 1
+// `define TRACEBUFFER 1
+// `define PS2DECODER 1
+// `define KEYBOARD_READBACK 1 // Enable readback of keyboard matrix from memory loader module
+// `define CPU_IR_READBACK 1 // Enable readback of CPU IR from memory loader module
+// `define TMS9902_SUPPORT
 
 module sys
 #(parameter mem_supports_byte_writes=1,
@@ -382,8 +386,13 @@ tms9918 vdp(
   .debugB(debug_addr)
 );
 
+`ifdef TMS9902_SUPPORT
   tms9902  aca(clk, nrts, 1'b0 /*dsr*/, ncts, /*int*/, nACACE, 
     cruout, cruin_9902, cruclk, xout, rin, ab[5:1]);
+`else 
+  assign cruin_9902 = 1'b1;    
+  assign xout = 1'b1;
+`endif
 
   assign db_in = vdp_rd ? vdp_data_out : 
                  grom_reg_out ? { grom_o, 8'h00 } :
@@ -474,6 +483,7 @@ tms9918 vdp(
       endcase
     end else if(bootloader_read_rq  && bootloader_addr[24]==1'b1) begin
       casez(bootloader_addr[12:0])
+`ifdef KEYBOARD_READBACK      
       // Keyboard matrix readback
       13'b0_0000_0000_0???: 
         begin
@@ -488,18 +498,20 @@ tms9918 vdp(
             3'd7: bootloader_readback_reg <= keyboard7;
             endcase
         end
+`endif        
       // Reset control readback, cpu history registers
       13'b0_0000_0000_100?: bootloader_readback_reg <= cpu_reset_ctrl;
+`ifdef CPU_IR_READBACK      
       13'b0_0000_0000_1010: bootloader_readback_reg <= cpu_ir[15:8];
       13'b0_0000_0000_1011: bootloader_readback_reg <= cpu_ir[7:0];
       13'b0_0000_0000_1100: bootloader_readback_reg <= cpu_ir_pc[15:8];
       13'b0_0000_0000_1101: bootloader_readback_reg <= cpu_ir_pc[7:0];
       13'b0_0000_0000_1110: bootloader_readback_reg <= cpu_ir_pc2[15:8];
       13'b0_0000_0000_1111: bootloader_readback_reg <= cpu_ir_pc2[7:0];
-
+`endif
       13'b0_0000_0001_???0: bootloader_readback_reg <= 8'hAA;   // ID bytes, does this work at all?
       13'b0_0000_0001_???1: bootloader_readback_reg <= 8'h55;
-
+`ifdef TRACEBUFFER
       // Tracebuffer, it has 256 entries, each entry is 16 bytes, total size thus 4K
       13'b1_0???_????_000?: bootloader_readback_reg <= 8'h00;
       13'b1_0???_????_0010: bootloader_readback_reg <= trace_addr;
@@ -516,6 +528,7 @@ tms9918 vdp(
       13'b1_0???_????_1101: bootloader_readback_reg <= trace_data_out2[23:16];           // xram_o low
       13'b1_0???_????_1110: bootloader_readback_reg <= trace_data_out2[15:8];            // sram_pins_din high
       13'b1_0???_????_1111: bootloader_readback_reg <= trace_data_out2[7:0];             // sram_pins_din low
+`endif
       endcase
       bootloader_read_ack2 <= 1'b1; // Note: returned data is just shit
     end 
@@ -534,7 +547,12 @@ tms9918 vdp(
   //----------------------------------------------------------
   // Route keyboard matrix data to TMS9901
   //----------------------------------------------------------
+  `ifdef PS2DECODER
   wire [7:0] ps2_keyline;
+  `else
+  reg [7:0] ps2_keyline = 8'hff;
+  `endif
+
   assign n_INT[1] = 1'b1;   // Peripheral interrupt
   assign n_INT[2] = ~vdp_int;
   assign n_INT[3]    = keyline[0] & ps2_keyline[0];
@@ -703,6 +721,7 @@ tms9918 vdp(
     );
 `endif
 
+`ifdef PS2DECODER
     ps2matrix kbd(.clk(clk), 
       .ps2clk(ps2clk), .ps2data(ps2dat), 
       .line_sel(tms9901_out[4:2]), .keyline(ps2_keyline),
@@ -710,6 +729,11 @@ tms9918 vdp(
       .f9_pressed(f9_pressed),
       .cursor_keys_pressed(cursor_keys_pressed)
       );
+  `else
+  assign f1_pressed = 1'b0;
+  assign f9_pressed = 1'b0;
+  assign cursor_keys_pressed = 4'b0000;
+  `endif
 
   wire audio_wr = wr && !last_wr && ab[15:8] == 8'h84;  // trigger on rising edge of wr
 
