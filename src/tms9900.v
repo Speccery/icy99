@@ -241,10 +241,12 @@ end
 reg [15:0] dest_reg_addr;
 reg [5:0] operand_mode;
 
+`ifdef EXPERIMENTAL_GPL_SUPPORT    
 //------------------------------------------------------------------------
 // GPL scratchpad address generator from byte read from GROM.
 //------------------------------------------------------------------------
 wire [15:0] scratchpad_addr = { 8'h83, rd_dat[15:8] };
+`endif
 
 //------------------------------------------------------------------------
 //  Divider / Multiplier as a separate entity
@@ -306,6 +308,7 @@ initial begin
     microcode[100] = { alu_to_ea, a1_const,  _____,  alu_load1, 16'h0000 };
 end
 
+`ifdef CPU_ARGSELS // This is not used yet
 //------------------------------------------------------------------------
 // arg1 selector
 //------------------------------------------------------------------------
@@ -382,7 +385,7 @@ begin
         a2_inc:     arg2_ = operand_word ? 16'h0002 : 16'h0001;
     endcase
 end
-
+`endif
 
 //------------------------------------------------------------------------
 //  The Absolytely Awesome State Machine
