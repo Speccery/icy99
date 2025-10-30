@@ -50,7 +50,8 @@ LCD_VERILOGS = \
 	../lcd/ram_source.v
 
 # all: $(HOSTNAME)/ti994a_ulx3s.bit
-all: $(HOSTNAME)/next9900.bin
+# all: $(HOSTNAME)/next9900.bin
+all: $(HOSTNAME)/flea_ohm.bit
 
 # NEXTPNR ROUTING; Blackice II
 $(HOSTNAME)/next9900.json: $(VERILOGS) top_blackice2.v blackice-ii.pcf Makefile 
@@ -79,13 +80,13 @@ enter1:
 	../tools/serialtool /dev/cu.usbserial-21230 -p 1000005 ff
 
 # ECP5 FleaFPGA Ohm
-flea.json: $(VERILOGS) top_flea.v ../src/dvi.v Makefile 
-	$(YOSYS) -q -p "synth_ecp5 -json flea.json" ../src/dvi.v top_flea.v rom16.v $(VERILOGS)
+$(HOSTNAME)/flea.json: $(VERILOGS) top_flea.v ../src/dvi.v Makefile 
+	@mkdir -p $(@D)
+	$(YOSYS) -q -p "synth_ecp5 -json $@" ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS)
 
-
-flea_ohm.bit: Makefile flea.json
-	$(NEXTPNR_ECP5) --25k --package CABGA381 --json flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg	
-	$(ECPPACK)  flea_out.cfg flea_ohm.bit
+$(HOSTNAME)/flea_ohm.bit: Makefile $(HOSTNAME)/flea.json
+	$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg
+	$(ECPPACK)  flea_out.cfg $(HOSTNAME)/flea_ohm.bit
 
 # ECP5 ULX3S ECP5-85 board
 VERILOGS_ULX3S = \

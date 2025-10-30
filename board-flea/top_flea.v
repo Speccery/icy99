@@ -48,7 +48,7 @@ module fleatop
   wire RAMCS;
   wire RAMLB;
   wire RAMUB;
-  wire [17:0] ADR;
+  wire [22:0] ADR;
   // Need to populate memory map with internal SRAM:
   // 8K  at 00000 system ROM
   // -- 8K  at 02000 low memory expansion
@@ -70,11 +70,11 @@ module fleatop
   wire vra_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:13] == 5'b010_00);     // 16K @ 20000
   wire car_sel = !RAMCS && (!RAMOE || !RAMWE) && (ADR[17:13] == 5'b100_00);     // 16K @ 40000
 */
-  wire rom_sel = (ADR[17:12] == 6'b000_000);    //  8K @ 00000
-  wire pad_sel = (ADR[17: 9] == 9'b000_1000_00);//  1K @ 08000 
-  wire gro_sel = (ADR[17:14] == 4'b001_0);      // 32K @ 10000
-  wire vra_sel = (ADR[17:13] == 5'b010_00);     // 16K @ 20000
-  wire car_sel = (ADR[17:13] == 5'b100_00);     // 16K @ 40000
+  wire rom_sel = (ADR[22:12] == 11'b0000_0000_000);    //  8K @ 00000
+  wire pad_sel = (ADR[22: 9] == 14'b0000_0000_1000_00);//  1K @ 08000 
+  wire gro_sel = (ADR[22:14] == 9'b0000_0001_0);      // 32K @ 10000
+  wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
+  wire car_sel = (ADR[22:13] == 10'b0000_0100_00);     // 16K @ 40000
   // Temporarily assign to top of 64K RAM to be able to run EVMBUG
   // wire car_sel = (ADR[17:13] == 5'b000_11);     // 16K @ 40000
  
@@ -155,20 +155,44 @@ module fleatop
   assign n_led1 = LED[3];  // stuck signal
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  sys ti994a(clk, LED, 
-    tms9902_tx, tms9902_rx,
-    RAMOE, RAMWE, RAMCS, RAMLB, RAMUB,
-    ADR, 
-    sram_pins_din, sram_pins_dout,
-    sram_pins_drive,
-    red, green, blue, hsync, vsync,
-    1'b1,  // cpu_reset_switch_n
+  sys ti994a(
+    .clk(clk), 
+    .LED(LED), 
+    .tms9902_tx(tms9902_tx), 
+    .tms9902_rx(tms9902_rx),
+    .RAMOE(RAMOE), 
+    .RAMWE(RAMWE), 
+    .RAMCS(RAMCS), 
+    .RAMLB(RAMLB), 
+    .RAMUB(RAMUB),
+    .ADR(ADR), 
+    .sram_pins_din(sram_pins_din), 
+    .sram_pins_dout(sram_pins_dout),
+    .sram_pins_drive(sram_pins_drive),
+    .memory_busy(1'b0),
+    .use_memory_busy(1'b0),
+    .red(red), 
+    .green(green), 
+    .blue(blue), 
+    .hsync(hsync), 
+    .vsync(vsync),
+    .cpu_reset_switch_n(1'b1),
+`ifdef LCD_SUPPORT    
     // LCD signals
-    pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden,
+    .pin_cs(pin_cs), 
+    .pin_sdin(pin_sdin), 
+    .pin_sclk(pin_sclk), 
+    .pin_d_cn(pin_d_cn), 
+    .pin_resn(pin_resn), 
+    .pin_vccen(pin_vccen), 
+    .pin_pmoden(pin_pmoden),
+`endif    
     // bootloader UART
-    serloader_tx, serloader_rx,
-    vde, // video display enable signal
-    ps2clk, ps2dat
+    .serloader_tx(serloader_tx), 
+    .serloader_rx(serloader_rx),
+    .vde(vde), // video display enable signal
+    .ps2clk(ps2clk), 
+    .ps2dat(ps2dat)
   );
 
   wire [7:0] red_out   = { red,   4'h0 };
