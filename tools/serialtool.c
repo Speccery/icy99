@@ -4,6 +4,7 @@
  
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <termios.h>
@@ -263,7 +264,10 @@ int load_file(int fd, char *filename, unsigned addr) {
 }
 
 void print_help(const char *progname) {
-  printf("Usage: %s <serial_port> <command> [arguments]\n\n", progname);
+  printf("Usage: %s [--port <serial_port>] <command> [arguments]\n\n", progname);
+  printf("Serial Port:\n");
+  printf("  --port <port>   Specify serial port (overrides SERIALTOOL_PORT env var)\n");
+  printf("  Environment variable SERIALTOOL_PORT can be set to avoid specifying port\n\n");
   printf("Commands:\n");
   printf("  -w <filename> <address> <length>  Write file to memory\n");
   printf("                                     address: hex address to write to\n");
@@ -279,31 +283,41 @@ void print_help(const char *progname) {
   printf("                                     address: hex address to read from\n");
   printf("                                     count: number of bytes (default: 1)\n");
   printf("\nExamples:\n");
-  printf("  %s /dev/ttyACM0 -w firmware.bin 8000 1024\n", progname);
-  printf("  %s /dev/ttyACM0 -r dump.bin 0 8192\n", progname);
-  printf("  %s /dev/ttyACM0 -p 1000 ff aa 55\n", progname);
-  printf("  %s /dev/ttyACM0 -P 1000 16\n", progname);
-  printf("  %s /dev/ttyACM0 -a\n", progname);
+  printf("  export SERIALTOOL_PORT=/dev/ttyACM0\n");
+  printf("  %s -w firmware.bin 8000 1024\n", progname);
+  printf("  %s -r dump.bin 0 8192\n", progname);
+  printf("  %s --port /dev/ttyUSB0 -p 1000 ff aa 55\n", progname);
+  printf("  %s -P 1000 16\n", progname);
+  printf("  %s -a\n", progname);
 }
  
 int main(int argc, char *argv[])
 {
-  if(argc < 3) {
+  if(argc < 2) {
     print_help(argv[0]);
     return 1;
   }
 
-  // Choose the serial port name.  If the Jrk is connected directly via USB,
-  // you can run "jrk2cmd --cmd-port" to get the right name to use here.
-  // Linux USB example:          "/dev/ttyACM0"  (see also: /dev/serial/by-id)
-  // macOS USB example:          "/dev/cu.usbmodem001234562"
-  // Cygwin example:             "/dev/ttyS7"
-  const char * device = "/dev/ttyACM0";
+  // Get serial port from environment variable or command line
+  const char * device = getenv("SERIALTOOL_PORT");
+  if(!device) {
+    device = "/dev/ttyACM0";  // Default fallback
+  }
+  
   int verbose = 0;
   if(verbose) printf("argc %d\n", argc);
   int argi = 1;
-  if(argc > 1) {
-    device = argv[argi++];
+  
+  // Check for --port option
+  if(argc > 2 && !strcmp(argv[argi], "--port")) {
+    device = argv[argi + 1];
+    argi += 2;
+  }
+  
+  // Check if we have a command after port parsing
+  if(argi >= argc) {
+    print_help(argv[0]);
+    return 1;
   }
  
   uint32_t baud_rate = 230400;
