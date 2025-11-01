@@ -17,7 +17,7 @@ unsigned fpga_addr=0;
 // Returns a non-negative file descriptor on success, or -1 on failure.
 int open_serial_port(const char * device, uint32_t baud_rate)
 {
-  int fd = open(device, O_RDWR | O_NOCTTY);
+  int fd = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK);
   if (fd == -1)
   {
     perror(device);
@@ -46,6 +46,8 @@ int open_serial_port(const char * device, uint32_t baud_rate)
   options.c_iflag &= ~(INLCR | IGNCR | ICRNL | IXON | IXOFF);
   options.c_oflag &= ~(ONLCR | OCRNL);
   options.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+  options.c_cflag &= ~CRTSCTS;  // Disable hardware flow control
+  options.c_cflag |= CLOCAL;    // Ignore modem control lines
  
   // Set up timeouts: Calls to read() will return as soon as there is
   // at least one byte available or when 100 ms has passed.
@@ -76,6 +78,13 @@ int open_serial_port(const char * device, uint32_t baud_rate)
     perror("tcsetattr failed");
     close(fd);
     return -1;
+  }
+ 
+  // Clear O_NONBLOCK flag to allow blocking reads/writes
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags != -1)
+  {
+    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
   }
  
   return fd;
@@ -252,9 +261,38 @@ int load_file(int fd, char *filename, unsigned addr) {
   printf("load_file done, wrote %d bytes, final address %X\n", total, addr);
   return 0;
 }
+
+void print_help(const char *progname) {
+  printf("Usage: %s <serial_port> <command> [arguments]\n\n", progname);
+  printf("Commands:\n");
+  printf("  -w <filename> <address> <length>  Write file to memory\n");
+  printf("                                     address: hex address to write to\n");
+  printf("                                     length: number of bytes to write\n");
+  printf("  -r <filename> <address> <length>  Read memory to file\n");
+  printf("                                     address: hex address to read from\n");
+  printf("                                     length: number of bytes to read\n");
+  printf("  -a                                 Get current hardware address\n");
+  printf("  -p <address> <byte1> [byte2...]   Poke (write) bytes to memory\n");
+  printf("                                     address: hex address to write to\n");
+  printf("                                     bytes: hex bytes to write\n");
+  printf("  -P <address> [count]               Peek (read) bytes from memory\n");
+  printf("                                     address: hex address to read from\n");
+  printf("                                     count: number of bytes (default: 1)\n");
+  printf("\nExamples:\n");
+  printf("  %s /dev/ttyACM0 -w firmware.bin 8000 1024\n", progname);
+  printf("  %s /dev/ttyACM0 -r dump.bin 0 8192\n", progname);
+  printf("  %s /dev/ttyACM0 -p 1000 ff aa 55\n", progname);
+  printf("  %s /dev/ttyACM0 -P 1000 16\n", progname);
+  printf("  %s /dev/ttyACM0 -a\n", progname);
+}
  
 int main(int argc, char *argv[])
 {
+  if(argc < 3) {
+    print_help(argv[0]);
+    return 1;
+  }
+
   // Choose the serial port name.  If the Jrk is connected directly via USB,
   // you can run "jrk2cmd --cmd-port" to get the right name to use here.
   // Linux USB example:          "/dev/ttyACM0"  (see also: /dev/serial/by-id)
@@ -273,6 +311,8 @@ int main(int argc, char *argv[])
   if(verbose) printf("open_serial_port\n");
   int fd = open_serial_port(device, baud_rate);
   if (fd < 0) { return 1; }
+
+  printf("Opened serial port %s at %u baud\n", device, baud_rate);
 
   int in_sync = 0;
   for(int tries = 0; tries < 512; tries++) {
@@ -295,7 +335,7 @@ int main(int argc, char *argv[])
   // argv[argi+1] == filename
   // argv[argi+2] == address (in hex)
   // argv[argi+3] == length
-  enum { MODE_NONE, MODE_WRITE, MODE_READ, MODE_GET_ADDR, MODE_POKE } mode = MODE_NONE;
+  enum { MODE_NONE, MODE_WRITE, MODE_READ, MODE_GET_ADDR, MODE_POKE, MODE_PEEK } mode = MODE_NONE;
   // Parse options i.e. strings beginning with '-'
   while(argi < argc && argv[argi][0] == '-') {
     if(!strcmp(argv[argi], "-w")) {
@@ -306,6 +346,8 @@ int main(int argc, char *argv[])
       mode = MODE_GET_ADDR;
     }  else if(!strcmp(argv[argi], "-p")) {
       mode = MODE_POKE;
+    }  else if(!strcmp(argv[argi], "-P")) {
+      mode = MODE_PEEK;
     } else {
       fprintf(stderr, "Invalid option %s\n", argv[argi]);
       close(fd);
@@ -352,6 +394,48 @@ int main(int argc, char *argv[])
       uint8_t buf[1] = { byte };
       write_memory_block(fd, buf, addr++, 1);
     }
+    close(fd);
+    return 0;
+  } else if (mode == MODE_PEEK) {
+    if(argi >= argc) {
+      fprintf(stderr, "Not enough arguments\n");
+      close(fd);
+      return 1;
+    }
+    unsigned addr;
+    if(sscanf(argv[argi++], "%x", &addr) != 1) {
+      fprintf(stderr, "Invalid address\n");
+      close(fd);
+      return 1;
+    }
+    int num_bytes = 1;  // Default to 1 byte
+    if(argi < argc) {
+      if(sscanf(argv[argi++], "%x", &num_bytes) != 1) {
+        fprintf(stderr, "Invalid number of bytes\n");
+        close(fd);
+        return 1;
+      }
+    }
+    if(num_bytes < 1 || num_bytes > 1024) {
+      fprintf(stderr, "Number of bytes must be between 1 and 1024\n");
+      close(fd);
+      return 1;
+    }
+    uint8_t buf[1024];
+    read_memory_block(fd, buf, addr, num_bytes);
+    for(int i = 0; i < num_bytes; i++) {
+      if(i % 16 == 0) {
+        if(i > 0) {
+          printf("\n");
+        }
+        printf("%06x: ", addr + i);
+      }
+      printf("%02x", buf[i]);
+      if(i < num_bytes - 1 && (i + 1) % 16 != 0) {
+        printf(" ");
+      }
+    }
+    printf("\n");
     close(fd);
     return 0;
   }

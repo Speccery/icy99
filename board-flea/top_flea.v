@@ -7,7 +7,7 @@
 module fleatop
 (
   input  wire clk_25mhz,
-  output wire [3:0] gpdi_dp, gpdi_dn,
+  output wire [0:0] LVDS_Red, LVDS_Green, LVDS_Blue, LVDS_ck,
   output wire PS2_enable,
   input  wire usb_fpga_dp, usb_fpga_dn,
   output wire Dram_CKE,
@@ -132,8 +132,6 @@ module fleatop
 
   wire clk = pll_25mhz;
 
-  // need to implement SRAM here
-
   // Serial port assignments begin
   // wire serloader_rx = slave_rx_i;  // all incoming traffic goes to serloader 
   wire serloader_rx = GPIO_3;
@@ -152,7 +150,17 @@ module fleatop
   wire [3:0] LED;
   wire vde;
 
-  assign n_led1 = LED[3];  // stuck signal
+  // assign n_led1 = LED[3];  // stuck signal
+  // Let's debug with n_led1. Implement a counter which blinks it.
+  reg [23:0] blink_counter = 0;
+
+  // Running blink counter from clk_25mhz works.
+  // Running blink counter from clk works.
+  always @(posedge pll_125mhz) begin // was using clk
+    blink_counter <= blink_counter + 1;
+  end
+  // assign n_led1 = blink_counter[23];  // blinker
+  assign n_led1 = ~GPIO_3; // Show receive activity on serial port
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   sys ti994a(
@@ -201,8 +209,33 @@ module fleatop
 
   wire hsyn = ~hsync;
   wire vsyn = ~vsync;
-  DVI_out out(pll_25mhz, pll_125mhz, red_out, green_out, blue_out, 
-    vde, hsyn, vsyn, gpdi_dp, gpdi_dn);
+  
+  // TMDS differential pairs - 2 bits each
+  wire [1:0] tmds_c, tmds_r, tmds_g, tmds_b;
+  
+  DVI_out out(
+    .pixclk(pll_25mhz),
+    .pixclk_x5(pll_125mhz),
+    .red(red_out),
+    .green(green_out),
+    .blue(blue_out),
+    .vde(vde),
+    .hSync(hsyn),
+    .vSync(vsyn),
+    .tmds_c(tmds_c),
+    .tmds_r(tmds_r),
+    .tmds_g(tmds_g),
+    .tmds_b(tmds_b)
+  );
+  
+  // Map TMDS pairs to LVDS differential outputs
+  // Use ODDRX1F for DDR output with proper 1-bit reset and connect only positive outputs
+  // The LVDS buffers in the pin constraints will create the differential pairs
+  ODDRX1F ddr0_clock (.D0(tmds_c[0]), .D1(tmds_c[1]), .Q(LVDS_ck[0]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_red   (.D0(tmds_r[0]), .D1(tmds_r[1]), .Q(LVDS_Red[0]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_green (.D0(tmds_g[0]), .D1(tmds_g[1]), .Q(LVDS_Green[0]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_blue  (.D0(tmds_b[0]), .D1(tmds_b[1]), .Q(LVDS_Blue[0]), .SCLK(pll_125mhz), .RST(1'b0));
+
 
 endmodule
 

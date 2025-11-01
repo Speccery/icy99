@@ -11,7 +11,7 @@
 // design for readability.
 
 
-// `define PCIR_SUPPORT 1  // For debugging purposes.
+`define PCIR_SUPPORT 1  // For debugging purposes.
 
 module tms9900(
     input clk, 

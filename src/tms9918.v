@@ -1150,12 +1150,12 @@ end
     ram_read_buffer <= ram_read_out;  
   end
 
-  // VRAM extended to 64K
-  dualport_par #(.WIDTH(8), .DEPTH(16)) FRAMEBUFFER (
+  // VRAM reduced to 16K for FleaFPGA Ohm (limited block RAM)
+  dualport_par #(.WIDTH(8), .DEPTH(14)) FRAMEBUFFER (
     // Port A, write port
     .clk_a(clk),
     .we_a(ram_write_rq),
-    .addr_a(vram_out_addr[15:0]),
+    .addr_a(vram_out_addr[13:0]),
     .din_a(data_in),  // The write data always comes from the CPU
     // Port B, our read port
     .clk_b(clk),

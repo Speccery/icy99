@@ -6,8 +6,8 @@
 
 // `define TRACEBUFFER 1
 // `define PS2DECODER 1
-// `define KEYBOARD_READBACK 1 // Enable readback of keyboard matrix from memory loader module
-// `define CPU_IR_READBACK 1 // Enable readback of CPU IR from memory loader module
+`define KEYBOARD_READBACK 1 // Enable readback of keyboard matrix from memory loader module
+`define CPU_IR_READBACK 1 // Enable readback of CPU IR from memory loader module
 // `define TMS9902_SUPPORT
 
 module sys

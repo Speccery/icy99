@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug serialtool",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/serialtool",
+            "args": [
+                "/dev/tty.usbserial-A4016XBY",
+                "-a"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "build-debug"
+        },
+        {
+            "name": "Debug serialtool with custom args",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/serialtool",
+            "args": [],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "build-debug"
+        }
+    ]
+}

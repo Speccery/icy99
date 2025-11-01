@@ -86,6 +86,7 @@ $(HOSTNAME)/flea.json: $(VERILOGS) top_flea.v ../src/dvi.v Makefile
 
 $(HOSTNAME)/flea_ohm.bit: Makefile $(HOSTNAME)/flea.json
 	$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg
+	rm -f $(HOSTNAME)/flea_ohm.bit
 	$(ECPPACK)  flea_out.cfg $(HOSTNAME)/flea_ohm.bit
 
 # ECP5 ULX3S ECP5-85 board
