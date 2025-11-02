@@ -73,10 +73,26 @@ $(HOSTNAME)/flea_ohm.bit: Makefile $(HOSTNAME)/flea.json
 	rm -f $(HOSTNAME)/flea_ohm.bit
 	$(ECPPACK)  flea_out.cfg $(HOSTNAME)/flea_ohm.bit
 
+# SDRAM targets
+sdram: $(HOSTNAME)/flea_ohm_sdram.bit
+
+$(HOSTNAME)/flea_sdram.json: $(VERILOGS) top_flea.v ../src/dvi.v ../src/sdram_cortex.v Makefile 
+	@mkdir -p $(@D)
+	$(YOSYS) -q -p "synth_ecp5 -json $@" -DUSE_SDRAM ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS) ../src/sdram_cortex.v
+
+$(HOSTNAME)/flea_ohm_sdram.bit: Makefile $(HOSTNAME)/flea_sdram.json
+	$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea_sdram.json --lpf flea_ohm.lpf --textcfg flea_sdram_out.cfg
+	rm -f $(HOSTNAME)/flea_ohm_sdram.bit
+	$(ECPPACK)  flea_sdram_out.cfg $(HOSTNAME)/flea_ohm_sdram.bit
+
 clean:
 	# Flea
 	rm -f flea.json flea_ohm.bit 
 	rm -f flea_out.cfg
+	# Flea SDRAM
+	rm -f flea_sdram.json flea_ohm_sdram.bit
+	rm -f flea_sdram_out.cfg
 
 .PHONY: clean
 .PHONY: erik9900
+.PHONY: sdram
