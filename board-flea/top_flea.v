@@ -10,7 +10,7 @@
 // `define CONSOLE_GROM_IN_SDRAM 0   // 24K - KEEP IN BLOCK RAM
 `define CART_GROM_IN_SDRAM    1   // 32K - PUT IN SDRAM
 // `define CONSOLE_ROM_IN_SDRAM  0   // 8K - KEEP IN BLOCK RAM
-// `define PAD_IN_SDRAM_TEST     1   // 1K - TEST SCRATCHPAD IN SDRAM (for testing only)
+`define PAD_IN_SDRAM_TEST     1   // 1K - TEST SCRATCHPAD IN SDRAM (for testing only)
 `endif
 
 module fleatop
@@ -70,6 +70,26 @@ module fleatop
 
   wire clk = pll_25mhz;         // CPU and TI99/4A system
   wire clk_sdram = pll_125mhz;  // SDRAM core
+
+  // Reset logic similar to ULX3S
+  localparam C_reset_delay_bits=24;
+  wire clk_locked;
+  assign clk_locked = 1'b1; // Assume PLL is always locked for Flea
+  reg R_btn_resetn = 1'b0;
+  reg [C_reset_delay_bits-1:0] R_reset_delay = 0;
+  
+  always @(posedge clk)
+  begin
+    // reliable start: after PLL lock, wait some delay and release reset
+    R_btn_resetn <= R_reset_delay[C_reset_delay_bits-1];
+    if(clk_locked)
+    begin
+      if(R_reset_delay[C_reset_delay_bits-1]==1'b0)
+        R_reset_delay <= R_reset_delay+1;
+    end
+    else
+      R_reset_delay <= 0;
+  end
 
   //------------------------------------------------------------
   // our SRAM
@@ -250,7 +270,7 @@ module fleatop
     .ad({ 1'b0, ADR[22:0]}),     // 24 bit word address
     .as(my_as_q),               // address strobe (active low - start memory cycle)
     .nwr(RAMWE),                // cpu/chipset requests write
-    .rst(1'b0),                 // cpu reset (active high)
+    .rst(~R_btn_resetn),        // cpu reset (active high)
     .ack(sdram_done)
   );
 
@@ -316,7 +336,7 @@ module fleatop
   assign n_led1 = ~GPIO_3; // Show receive activity on serial port
 
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  sys #(1,0) ti994a(
+  sys #(0,0) ti994a(
     .clk(clk), 
     .LED(LED), 
     .tms9902_tx(tms9902_tx), 
@@ -338,7 +358,7 @@ module fleatop
     .blue(blue), 
     .hsync(hsync), 
     .vsync(vsync),
-    .cpu_reset_switch_n(1'b1),
+    .cpu_reset_switch_n(R_btn_resetn),
 `ifdef LCD_SUPPORT    
     // LCD signals
     .pin_cs(pin_cs), 
