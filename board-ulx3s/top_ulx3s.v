@@ -7,9 +7,9 @@
 // The following macros enable placement of ROM contents to SDRAM to save internal block RAM.
 `ifdef USE_SDRAM
 // If SDRAM is not configured, everything must be internally stored.
-`define CONSOLE_GROM_IN_SDRAM 1   // 24K
+`define CONSOLE_GROM_IN_SDRAM 0   // 24K
 `define CART_GROM_IN_SDRAM    1   // 32K
-`define CONSOLE_ROM_IN_SDRAM  1   // 8K
+`define CONSOLE_ROM_IN_SDRAM  0   // 8K
 `endif
 
 //`define TIPI_SUPPORT          1   // Raspberry PI interface
@@ -452,26 +452,26 @@ module top_ulx3s
   wire tms9902_tx;
   
   // `define SERIAL_TO_TMS9902
-  `define SERIAL_TO_ESP
-  `ifndef SERIAL_TO_ESP
-    `ifdef SERIAL_TO_TMS9902
-      // Here our serial traffic goes to TMS9902
-      wire tms9902_rx = ftdi_txd;
-      assign ftdi_rxd = tms9902_tx;
-      assign gp_27 = tms9902_tx;
-      wire serloader_rx = 1'b1;   // serloader gets no data
-      assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
-    `else
-      // Route serial port to the serloader component.
-      wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
-      assign ftdi_rxd = serloader_tx; // send to FTDI chip  
-      assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
-    `endif
+  // `define SERIAL_TO_ESP  // EP commented out 2025-11-02
+`ifndef SERIAL_TO_ESP
+  `ifdef SERIAL_TO_TMS9902
+    // Here our serial traffic goes to TMS9902
+    wire tms9902_rx = ftdi_txd;
+    assign ftdi_rxd = tms9902_tx;
+    assign gp_27 = tms9902_tx;
+    wire serloader_rx = 1'b1;   // serloader gets no data
+    assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
   `else
-    wire serloader_rx = 1'b1;
-    assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
-    assign ftdi_rxd = wifi_txd;
+    // Route serial port to the serloader component.
+    wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
+    assign ftdi_rxd = serloader_tx; // send to FTDI chip  
+    assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
   `endif
+`else
+  wire serloader_rx = 1'b1;
+  assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
+  assign ftdi_rxd = wifi_txd;
+`endif
 
 `ifndef SERIAL_TO_TMS9902  
   wire tms9902_rx = gp[0]; // pins changed for TIPI gp[26];   // receive from FTDI chip
@@ -680,10 +680,10 @@ module top_ulx3s
   );
   endgenerate
 
-  ODDRX1F ddr0_clock (.D0(tmds3[0]), .D1(tmds3[1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_red   (.D0(tmds2[0]), .D1(tmds2[1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(0));
-  ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(0));
+  ODDRX1F ddr0_clock (.D0(tmds3[0]), .D1(tmds3[1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_red   (.D0(tmds2[0]), .D1(tmds2[1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(1'b0));
 
 
 
