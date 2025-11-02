@@ -7,9 +7,9 @@
 // The following macros enable placement of ROM contents to SDRAM to save internal block RAM.
 `ifdef USE_SDRAM
 // If SDRAM is not configured, everything must be internally stored.
-`define CONSOLE_GROM_IN_SDRAM 0   // 24K
-`define CART_GROM_IN_SDRAM    1   // 32K
-`define CONSOLE_ROM_IN_SDRAM  0   // 8K
+// `define CONSOLE_GROM_IN_SDRAM 0   // 24K - KEEP IN BLOCK RAM
+`define CART_GROM_IN_SDRAM    1   // 32K - PUT IN SDRAM
+// `define CONSOLE_ROM_IN_SDRAM  0   // 8K - KEEP IN BLOCK RAM
 `endif
 
 //`define TIPI_SUPPORT          1   // Raspberry PI interface

@@ -789,6 +789,7 @@ tms9918 vdp(
 `else
 assign tipi_enabled = 1'b0;
 assign tipi_ioreg_en = 1'b1;  // Without TIPI the IO registers are disabled
+assign cruin_tipi = 1'b1;     // Default high when TIPI not supported
 `endif
 
   // SAMS memory paging unit.
