@@ -73,7 +73,7 @@ module fleatop
   wire rom_sel = (ADR[22:12] == 11'b0000_0000_000);    //  8K @ 00000
   wire pad_sel = (ADR[22: 9] == 14'b0000_0000_1000_00);//  1K @ 08000 
   wire gro_sel = (ADR[22:14] == 9'b0000_0001_0);      // 32K @ 10000
-  wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000
+  // wire vra_sel = (ADR[22:13] == 10'b0000_0010_00);     // 16K @ 20000 - VRAM now internal
   wire car_sel = (ADR[22:13] == 10'b0000_0100_00);     // 16K @ 40000
   // Temporarily assign to top of 64K RAM to be able to run EVMBUG
   // wire car_sel = (ADR[17:13] == 5'b000_11);     // 16K @ 40000
@@ -102,12 +102,14 @@ module fleatop
   dualport_par #(8,14) gro_lb(pll_125mhz, gro_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[13:0], gro_out_lo);
   dualport_par #(8,14) gro_hb(pll_125mhz, gro_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_125mhz, ADR[13:0], gro_out_hi);
   */
-  // VRAM 16K
+  // VRAM 16K - now internal to TMS9918, external VRAM removed to save 8 DP16KD blocks
+  /*
   wire vra_we_lo = vra_sel && !RAMLB && !RAMWE;
   wire vra_we_hi = vra_sel && !RAMUB && !RAMWE;
   wire [7:0] vra_out_lo, vra_out_hi;
   dualport_par #(8,13) vra_lb(pll_125mhz, vra_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], vra_out_lo);
   dualport_par #(8,13) vra_hb(pll_125mhz, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], vra_out_hi);
+  */
   // CARTRIDGE (paged, here 2 pages total 16K)
   wire car_we_lo = car_sel && !RAMLB && !RAMWE;
   wire car_we_hi = car_sel && !RAMUB && !RAMWE;
@@ -120,7 +122,7 @@ module fleatop
     rom_sel ? { rom_out_hi, rom_out_lo } :
     pad_sel ? { pad_out_hi, pad_out_lo } :
     gro_sel ? { gro_out_hi, gro_out_lo } :
-    vra_sel ? { vra_out_hi, vra_out_lo } :
+    // vra_sel ? { vra_out_hi, vra_out_lo } :  // VRAM now internal and defined in the TMS9918 module
     car_sel ? { car_out_hi, car_out_lo } :
     16'h0000;
 
