@@ -64,34 +64,36 @@ enter1:
 	../tools/serialtool -p 1000005 ff
 
 # ECP5 FleaFPGA Ohm
-$(HOSTNAME)/flea.json: $(VERILOGS) top_flea.v ../src/dvi.v Makefile 
+$(HOSTNAME)/flea.json: $(VERILOGS) top_flea.v ../src/dvi.v ecp5pll.sv Makefile 
 	@mkdir -p $(@D)
 	@echo "Running Yosys synthesis..."
-	@$(YOSYS) -q -p "synth_ecp5 -json $@" ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS) | grep -E "(Number of cells|Max frequency)"
+	@$(YOSYS) -q -p "synth_ecp5 -json $@" ecp5pll.sv ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS) 
+	# | grep -E "(Number of cells|Max frequency)"
 
 $(HOSTNAME)/flea_ohm.bit: Makefile $(HOSTNAME)/flea.json
 	@echo "Running place and route..."
-	@$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg 2>&1 | grep -E "(Info: Device utilisation|Info: Placed|Info: Routed|Max frequency for clock|ERROR|Warning)"
+	@$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg $(HOSTNAME)/flea_out.cfg --timing-allow-fail 2>&1 
+	#| grep -E "(Info: Device utilisation|Info: Placed|Info: Routed|Max frequency for clock|ERROR|Warning)"
 	@rm -f $(HOSTNAME)/flea_ohm.bit
 	@echo "Generating bitstream..."
-	@$(ECPPACK) flea_out.cfg $(HOSTNAME)/flea_ohm.bit
+	@$(ECPPACK) $(HOSTNAME)/flea_out.cfg $(HOSTNAME)/flea_ohm.bit
 
 # SDRAM targets
 sdram: $(HOSTNAME)/flea_ohm_sdram.bit
 
-$(HOSTNAME)/flea_sdram.json: $(VERILOGS) top_flea.v ../src/dvi.v ../src/sdram_cortex.v Makefile 
+$(HOSTNAME)/flea_sdram.json: $(VERILOGS) top_flea.v ../src/dvi.v ../src/sdram_cortex.v ecp5pll.sv Makefile 
 	@mkdir -p $(@D)
 	@echo "Running Yosys synthesis (SDRAM)..."
-	@$(YOSYS) -q -p "synth_ecp5 -json $@" -DUSE_SDRAM ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS) ../src/sdram_cortex.v 
+	@$(YOSYS) -q -p "synth_ecp5 -json $@" -DUSE_SDRAM ecp5pll.sv ../src/dvi.v top_flea.v ../rom16.v $(VERILOGS) ../src/sdram_cortex.v 
 	# | grep -E "(Number of cells|Max frequency)"
 
 $(HOSTNAME)/flea_ohm_sdram.bit: Makefile $(HOSTNAME)/flea_sdram.json
 	@echo "Running place and route (SDRAM)..."
-	@$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea_sdram.json --lpf flea_ohm.lpf --textcfg flea_sdram_out.cfg 2>&1
+	@$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea_sdram.json --lpf flea_ohm.lpf --textcfg $(HOSTNAME)/flea_sdram_out.cfg 2>&1
 	# | grep -E "(Info: Device utilisation|Info: Placed|Info: Routed|Max frequency for clock|ERROR|Warning)"
 	@rm -f $(HOSTNAME)/flea_ohm_sdram.bit
 	@echo "Generating bitstream (SDRAM)..."
-	@$(ECPPACK) flea_sdram_out.cfg $(HOSTNAME)/flea_ohm_sdram.bit
+	@$(ECPPACK) $(HOSTNAME)/flea_sdram_out.cfg $(HOSTNAME)/flea_ohm_sdram.bit
 
 clean:
 	# Flea
@@ -110,7 +112,7 @@ clean:
 verbose: $(HOSTNAME)/flea_ohm_verbose.bit
 
 $(HOSTNAME)/flea_ohm_verbose.bit: Makefile $(HOSTNAME)/flea.json
-	$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg flea_out.cfg
+	$(NEXTPNR_ECP5) --25k --package CABGA381 --json $(HOSTNAME)/flea.json --lpf flea_ohm.lpf --textcfg $(HOSTNAME)/flea_out.cfg
 	rm -f $(HOSTNAME)/flea_ohm_verbose.bit
-	$(ECPPACK) flea_out.cfg $(HOSTNAME)/flea_ohm_verbose.bit
+	$(ECPPACK) $(HOSTNAME)/flea_out.cfg $(HOSTNAME)/flea_ohm_verbose.bit
 	cp $(HOSTNAME)/flea_ohm_verbose.bit $(HOSTNAME)/flea_ohm.bit

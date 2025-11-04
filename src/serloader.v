@@ -450,8 +450,10 @@ reg prev_ack;  // debugging signal
   end
 
   //	------------------------------
-  // Clock divider: 25 000 000 / 230 400
-  serial_tx #(108) uart_tx(
+  // Clock divider for 230400 baud:
+  // Was: 25 000 000 / 230 400 = 108 (for 25MHz clock)
+  // Now: 40 000 000 / 230 400 = 174 (for 40MHz clock)
+  serial_tx #(174) uart_tx(
       .clk(clk),
     .rst(rst),
     .tx(tx),
@@ -460,7 +462,7 @@ reg prev_ack;  // debugging signal
     .data(tx_data),
     .new_data(uart_tx_now));
 
-  serial_rx #(108) uart_receiver(
+  serial_rx #(174) uart_receiver(
       .clk(clk),
     .rst(rst),
     .rx(rx),

@@ -59,22 +59,40 @@ module fleatop
   assign PS2_enable = 1'b 1;  // Configures both USB host ports for legacy PS/2 mode.
 
   // clock generation
-  wire pll_250mhz, pll_125mhz, pll_25mhz;
-
-  clk_25_250_125_25 clk_pll (
-    .clki(clk_25mhz),
-    .clko(pll_250mhz),
-    .clks1(pll_125mhz),
-    .clks2(pll_25mhz)
+  // Modified for 960x540 @ 60Hz: 40MHz pixel clock, 200MHz shift clock (for ODDR)
+  // ODDR at 200MHz produces 400MHz effective TMDS rate (200MHz × 2)
+  localparam pixel_f = 40000000; // 40MHz for 960x540@60Hz
+  
+  wire [3:0] clocks;
+  wire shift_clk = clocks[0];      // 200MHz shift clock for ODDR (produces 400MHz TMDS via DDR)
+  wire pixel_clk = clocks[1];      // 40MHz pixel clock
+  wire sdram_clk_internal = clocks[2]; // 100MHz for SDRAM
+  wire clk_locked;
+  
+  ecp5pll
+  #(
+    .in_hz(25000000),
+    .out0_hz(pixel_f * 5),         // 200MHz shift clock (40MHz * 5, DDR makes it 400MHz effective)
+    .out1_hz(pixel_f),             // 40MHz pixel clock
+    .out2_hz(100000000)            // 100MHz SDRAM clock
+  )
+  ecp5pll_inst
+  (
+    .clk_i(clk_25mhz),
+    .clk_o(clocks),
+    .locked(clk_locked)
   );
 
-  wire clk = pll_25mhz;         // CPU and TI99/4A system
-  wire clk_sdram = pll_125mhz;  // SDRAM core
+  wire clk = pixel_clk;          // CPU and TI99/4A system (40MHz)
+  
+`ifdef USE_SDRAM
+  // When SDRAM is used, drive the output port with the PLL clock
+  assign sdram_clk = sdram_clk_internal;
+`endif
 
   // Reset logic similar to ULX3S
   localparam C_reset_delay_bits=24;
-  wire clk_locked;
-  assign clk_locked = 1'b1; // Assume PLL is always locked for Flea
+  // clk_locked comes from ecp5pll instance
   reg R_btn_resetn = 1'b0;
   reg [C_reset_delay_bits-1:0] R_reset_delay = 0;
   
@@ -159,7 +177,7 @@ module fleatop
   // ROM
 `ifndef CONSOLE_ROM_IN_SDRAM
   wire [7:0] rom_out_lo, rom_out_hi;
-  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_125mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
+  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(sdram_clk_internal, ADR[11:0], { rom_out_hi, rom_out_lo} );
 `endif
   /*
   wire rom_we_lo = rom_sel && !RAMLB && !RAMWE;
@@ -172,14 +190,14 @@ module fleatop
   wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;
   wire pad_we_hi = pad_sel && !RAMUB && !RAMWE;
   wire [7:0] pad_out_lo, pad_out_hi;
-  dualport_par #(8, 9) pad_lb(pll_125mhz, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[ 8:0], pad_out_lo);
-  dualport_par #(8, 9) pad_hb(pll_125mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_125mhz, ADR[ 8:0], pad_out_hi);
+  dualport_par #(8, 9) pad_lb(sdram_clk_internal, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], sdram_clk_internal, ADR[ 8:0], pad_out_lo);
+  dualport_par #(8, 9) pad_hb(sdram_clk_internal, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], sdram_clk_internal, ADR[ 8:0], pad_out_hi);
 `endif
 
 `ifndef CONSOLE_GROM_IN_SDRAM
   // GROM 24K
   wire [7:0] gro_out_lo, gro_out_hi;
-  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pll_125mhz, ADR[13:0], {gro_out_hi, gro_out_lo } );
+  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(sdram_clk_internal, ADR[13:0], {gro_out_hi, gro_out_lo } );
 `endif 
   /*
   wire gro_we_lo = gro_sel && !RAMLB && !RAMWE;
@@ -205,16 +223,16 @@ module fleatop
 `ifndef USE_SDRAM
   wire ram_exp_we_lo = ram_sel && !RAMLB && !RAMWE;
   wire ram_exp_we_hi = ram_sel && !RAMUB && !RAMWE;
-  dualport_par #(8, 14) ram_exp_lb(pll_125mhz, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pll_125mhz, ram_exp_addr, ram_expansion_out[7:0]);
-  dualport_par #(8, 14) ram_exp_hb(pll_125mhz, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pll_125mhz, ram_exp_addr, ram_expansion_out[15:8]);
+  dualport_par #(8, 14) ram_exp_lb(sdram_clk_internal, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], sdram_clk_internal, ram_exp_addr, ram_expansion_out[7:0]);
+  dualport_par #(8, 14) ram_exp_hb(sdram_clk_internal, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], sdram_clk_internal, ram_exp_addr, ram_expansion_out[15:8]);
 `endif
 
   // CARTRIDGE (paged, here 2 pages total 16K)
   wire car_we_lo = car_sel && !RAMLB && !RAMWE;
   wire car_we_hi = car_sel && !RAMUB && !RAMWE;
   wire [7:0] car_out_lo, car_out_hi;
-  dualport_par #(8,13) car_lb(pll_125mhz, car_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], car_out_lo);
-  dualport_par #(8,13) car_hb(pll_125mhz, car_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], car_out_hi);
+  dualport_par #(8,13) car_lb(sdram_clk_internal, car_we_lo, ADR[12:0], sram_pins_dout[ 7:0], sdram_clk_internal, ADR[12:0], car_out_lo);
+  dualport_par #(8,13) car_hb(sdram_clk_internal, car_we_hi, ADR[12:0], sram_pins_dout[15:8], sdram_clk_internal, ADR[12:0], car_out_hi);
 
   wire addr_strobe;
 
@@ -252,7 +270,7 @@ module fleatop
   // assign gp[12] = ram_sel;
   
   SDRAM sdram_i (
-    .clk_in(clk_sdram),     // controller clock
+    .clk_in(sdram_clk_internal),     // controller clock (100MHz)
     // interface to the SDRAM chip
     .sd_data(sdram_d),          // 16 bit databus
     .sd_addr(sdram_a),          // 13 bit multiplexed address bus
@@ -263,7 +281,7 @@ module fleatop
     .sd_ras(sdram_rasn),        // row address select
     .sd_cas(sdram_casn),        // columns address select
     .sd_cke(sdram_cke),         // clock enable
-    .sd_clk(sdram_clk),         // chip clock (inverted from input clk)
+    .sd_clk(sdram_clk_internal),         // chip clock (inverted from input clk)
     // interface to TMS9900 et al
     .din(sram_pins_dout),        // data input from cpu
     .dout(ram_expansion_out),    // data output to cpu
@@ -329,7 +347,7 @@ module fleatop
 
   // Running blink counter from clk_25mhz works.
   // Running blink counter from clk works.
-  always @(posedge pll_125mhz) begin // was using clk
+  always @(posedge sdram_clk_internal) begin // was using pll_125mhz, now sdram_clk_internal (100MHz)
     blink_counter <= blink_counter + 1;
   end
   // assign n_led1 = blink_counter[23];  // blinker
@@ -388,8 +406,8 @@ module fleatop
   wire [1:0] tmds_c, tmds_r, tmds_g, tmds_b;
   
   DVI_out out(
-    .pixclk(pll_25mhz),
-    .pixclk_x5(pll_125mhz),
+    .pixclk(pixel_clk),    // 40MHz pixel clock for 960x540
+    .pixclk_x5(shift_clk), // 200MHz shift clock for ODDR (produces 400MHz TMDS via DDR)
     .red(red_out),
     .green(green_out),
     .blue(blue_out),
@@ -405,62 +423,11 @@ module fleatop
   // Map TMDS pairs to LVDS differential outputs
   // Use ODDRX1F for DDR output with proper 1-bit reset and connect only positive outputs
   // The LVDS buffers in the pin constraints will create the differential pairs
-  ODDRX1F ddr0_clock (.D0(tmds_c[0]), .D1(tmds_c[1]), .Q(LVDS_ck[0]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_red   (.D0(tmds_r[0]), .D1(tmds_r[1]), .Q(LVDS_Red[0]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_green (.D0(tmds_g[0]), .D1(tmds_g[1]), .Q(LVDS_Green[0]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_blue  (.D0(tmds_b[0]), .D1(tmds_b[1]), .Q(LVDS_Blue[0]), .SCLK(pll_125mhz), .RST(1'b0));
+  // ODDR at 200MHz produces 400MHz effective TMDS rate (200MHz × 2 = 400MHz)
+  ODDRX1F ddr0_clock (.D0(tmds_c[0]), .D1(tmds_c[1]), .Q(LVDS_ck[0]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_red   (.D0(tmds_r[0]), .D1(tmds_r[1]), .Q(LVDS_Red[0]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_green (.D0(tmds_g[0]), .D1(tmds_g[1]), .Q(LVDS_Green[0]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_blue  (.D0(tmds_b[0]), .D1(tmds_b[1]), .Q(LVDS_Blue[0]), .SCLK(shift_clk), .RST(1'b0));
 
 
-endmodule
-
-module clk_25_250_125_25(
-  input clki, 
-  output clks1,
-  output clks2,
-  output locked,
-  output clko
-);
-  wire clkfb;
-  wire clkos;
-  wire clkop;
-  (* ICP_CURRENT="12" *) (* LPF_RESISTOR="8" *) (* MFG_ENABLE_FILTEROPAMP="1" *) (* MFG_GMCREF_SEL="2" *)
-  EHXPLLL #(
-      .PLLRST_ENA("DISABLED"),
-      .INTFB_WAKE("DISABLED"),
-      .STDBY_ENABLE("DISABLED"),
-      .DPHASE_SOURCE("DISABLED"),
-      .CLKOP_FPHASE(0),
-      .CLKOP_CPHASE(0),
-      .OUTDIVIDER_MUXA("DIVA"),
-      .CLKOP_ENABLE("ENABLED"),
-      .CLKOP_DIV(2),
-      .CLKOS_ENABLE("ENABLED"),
-      .CLKOS_DIV(4),
-      .CLKOS_CPHASE(0),
-      .CLKOS_FPHASE(0),
-      .CLKOS2_ENABLE("ENABLED"),
-      .CLKOS2_DIV(20),
-      .CLKOS2_CPHASE(0),
-      .CLKOS2_FPHASE(0),
-      .CLKFB_DIV(10),
-      .CLKI_DIV(1),
-      .FEEDBK_PATH("INT_OP")
-    ) pll_i (
-      .CLKI(clki),
-      .CLKFB(clkfb),
-      .CLKINTFB(clkfb),
-      .CLKOP(clkop),
-      .CLKOS(clks1),
-      .CLKOS2(clks2),
-      .RST(1'b0),
-      .STDBY(1'b0),
-      .PHASESEL0(1'b0),
-      .PHASESEL1(1'b0),
-      .PHASEDIR(1'b0),
-      .PHASESTEP(1'b0),
-      .PLLWAKESYNC(1'b0),
-      .ENCLKOP(1'b0),
-      .LOCK(locked)
-    );
-  assign clko = clkop;
 endmodule
