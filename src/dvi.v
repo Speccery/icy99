@@ -13,38 +13,65 @@ module DVI_out
   output wire [1:0] tmds_c, tmds_r, tmds_g, tmds_b
 );
 
+  // Synchronize all inputs on the pixel clock first to ensure alignment
+  reg [7:0] sync_red = 0, sync_green = 0, sync_blue = 0;
+  reg sync_vde = 0, sync_hSync = 0, sync_vSync = 0;
+  
+  always @(posedge pixclk) begin
+    sync_red   <= red;
+    sync_green <= green;
+    sync_blue  <= blue;
+    sync_vde   <= vde;
+    sync_hSync <= hSync;
+    sync_vSync <= vSync;
+  end
+
   // 10b8b TMDS encoding of RGB and Sync
   //
   wire [9:0] TMDS_red, TMDS_green, TMDS_blue;
-  TMDS_encoder encode_R(.clk(pixclk), .VD(red  ), .CD(2'b00)        , .VDE(vde), .TMDS(TMDS_red));
-  TMDS_encoder encode_G(.clk(pixclk), .VD(green), .CD(2'b00)        , .VDE(vde), .TMDS(TMDS_green));
-  TMDS_encoder encode_B(.clk(pixclk), .VD(blue ), .CD({vSync,hSync}), .VDE(vde), .TMDS(TMDS_blue));
+  TMDS_encoder encode_R(.clk(pixclk), .VD(sync_red  ), .CD(2'b00)              , .VDE(sync_vde), .TMDS(TMDS_red));
+  TMDS_encoder encode_G(.clk(pixclk), .VD(sync_green), .CD(2'b00)              , .VDE(sync_vde), .TMDS(TMDS_green));
+  TMDS_encoder encode_B(.clk(pixclk), .VD(sync_blue ), .CD({sync_vSync,sync_hSync}), .VDE(sync_vde), .TMDS(TMDS_blue));
 
-  // shift out 10 bits each pix clock (2 DDR bits at a 5x rate)
-  //
-  reg [2:0] ctr_mod5 = 0;
-  reg shift_ld = 0;
-
-  always @(posedge pixclk_x5)
-  begin
-    shift_ld <= (ctr_mod5==4'd4);
-    ctr_mod5 <= (ctr_mod5==4'd4) ? 4'd0 : ctr_mod5 + 4'd1;
-  end
+  // Latch encoded data on pixel clock (pipeline stage for timing)
+  reg [9:0] latched_red = 0, latched_green = 0, latched_blue = 0;
   
-  reg [9:0] shift_R = 0, shift_G = 0, shift_B = 0, shift_C = 0;
+  always @(posedge pixclk)
+  begin
+    latched_red   <= TMDS_red;
+    latched_green <= TMDS_green;
+    latched_blue  <= TMDS_blue;
+  end
+
+  // DDR serializer with proper clock domain synchronization
+  // Uses rotating shift_clock pattern to synchronize load timing
+  // This is based on the working vga2dvid implementation
+  parameter [9:0] c_shift_clock_initial = 10'b0000011111;
+  reg [9:0] shift_clock = c_shift_clock_initial;
+  reg [9:0] shift_red = 0, shift_green = 0, shift_blue = 0;
 
   always @(posedge pixclk_x5)
   begin
-    shift_R <= shift_ld ? TMDS_red   : shift_R[9:2];
-    shift_G <= shift_ld ? TMDS_green : shift_G[9:2];
-    shift_B <= shift_ld ? TMDS_blue  : shift_B[9:2];	
-    shift_C <= shift_ld ? 10'h3e0    : shift_C[9:2];
+    // Load new data when shift_clock pattern indicates it's time
+    if(shift_clock[5:4] == c_shift_clock_initial[5:4]) begin
+      shift_red   <= latched_red;
+      shift_green <= latched_green;
+      shift_blue  <= latched_blue;
+    end
+    else begin
+      // Shift out 2 bits for DDR
+      shift_red   <= {2'b00, shift_red[9:2]};
+      shift_green <= {2'b00, shift_green[9:2]};
+      shift_blue  <= {2'b00, shift_blue[9:2]};
+    end
+    // Rotate the shift_clock pattern (2 bits per cycle for DDR)
+    shift_clock <= {shift_clock[1:0], shift_clock[9:2]};
   end
 
-  assign tmds_c = shift_C[1:0];
-  assign tmds_r = shift_R[1:0];
-  assign tmds_g = shift_G[1:0];
-  assign tmds_b = shift_B[1:0];
+  assign tmds_c = shift_clock[1:0];  // Clock pattern
+  assign tmds_r = shift_red[1:0];
+  assign tmds_g = shift_green[1:0];
+  assign tmds_b = shift_blue[1:0];
 endmodule
 
 
