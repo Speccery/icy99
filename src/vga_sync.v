@@ -30,8 +30,8 @@ module VGA_SYNC(
   localparam [10:0] xframe            = x+256; // pixel_f/(f*yframe);
   localparam [10:0] xblank            = xframe-x;
   localparam [10:0] yblank            = yframe-y;
-  localparam [10:0] hsync_front_porch = 40; // xblank/3;
-  localparam [10:0] hsync_pulse_width = 128; // xblank/3;
+  localparam [10:0] hsync_front_porch = xblank/3;
+  localparam [10:0] hsync_pulse_width = xblank/3;
   localparam [10:0] hsync_back_porch  = xblank-hsync_pulse_width-hsync_front_porch+xadjustf;
   localparam [10:0] vsync_front_porch = yblank/3; // 1 for 800x600
   localparam [10:0] vsync_pulse_width = yblank/3; // 4 for 800x600
@@ -39,7 +39,18 @@ module VGA_SYNC(
 // initial begin
 //   $display("Calculated xframe: %d", xframe);
 // end
-
+  // Display computed timing parameters during synthesis
+  initial begin
+    $display("====== VGA Timing Parameters ===");
+    $display("=== Resolution: %0dx%0d @ %0dHz", x, y, f);
+    $display("=== Pixel clock: %0d Hz", pixel_f);
+    $display("=== Frame dimensions: %0dx%0d (xframe x yframe)", xframe, yframe);
+    $display("=== Blanking: H=%0d V=%0d", xblank, yblank);
+    $display("=== Hsync: front=%0d pulse=%0d back=%0d", hsync_front_porch, hsync_pulse_width, hsync_back_porch);
+    $display("=== Vsync: front=%0d pulse=%0d back=%0d", vsync_front_porch, vsync_pulse_width, vsync_back_porch);
+    $display("=== Shift clock: %0d MHz", pixel_f*5*(c_ddr?1:2)/1000000 );
+    $display("================================");
+  end
 
   assign video_on = (h_count < x) && (v_count < y);
   
@@ -62,14 +73,14 @@ module VGA_SYNC(
     end
   end
 
-  // Generate sync signals
-  // Match reference vga.v timing exactly (all values are -1):
-  // Hsync pulse: starts at 960+85-1=1044, ends at 960+85+85-1=1129
-  // Vsync pulse: starts at 540+2-1=541, ends at 540+2+2-1=543
+  // Generate sync signals with POSITIVE polarity (like reference vga.v)
+  // Progressive scan uses positive sync: 1 during pulse, 0 otherwise
+  // Hsync pulse: starts at x+front-1, ends at x+front+pulse-1
+  // Vsync pulse: starts at y+front-1, ends at y+front+pulse-1
   always @(posedge clk) 
   begin
-    horiz_sync <= (h_count >= (x + hsync_front_porch - 1) && h_count <= (x + hsync_front_porch + hsync_pulse_width - 1)) ? 1'b0 : 1'b1;
-    vert_sync  <= (v_count >= (y + vsync_front_porch - 1) && v_count <= (y + vsync_front_porch + vsync_pulse_width - 1)) ? 1'b0 : 1'b1;
+    horiz_sync <= (h_count >= (x + hsync_front_porch - 1) && h_count <= (x + hsync_front_porch + hsync_pulse_width - 1)) ? 1'b1 : 1'b0;
+    vert_sync  <= (v_count >= (y + vsync_front_porch - 1) && v_count <= (y + vsync_front_porch + vsync_pulse_width - 1)) ? 1'b1 : 1'b0;
   end
 
 endmodule

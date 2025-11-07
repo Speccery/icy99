@@ -399,8 +399,9 @@ module fleatop
   wire [7:0] green_out = { green, 4'h0 };
   wire [7:0] blue_out  = { blue,  4'h0 };
 
-  wire hsyn = ~hsync;
-  wire vsyn = ~vsync;
+  // Pass sync signals directly without inversion (VGA_SYNC now outputs positive sync)
+  wire hsyn = hsync;
+  wire vsyn = vsync;
   
   // TMDS differential pairs - 2 bits each
   wire [1:0] tmds_c, tmds_r, tmds_g, tmds_b;
