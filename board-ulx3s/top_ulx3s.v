@@ -87,31 +87,32 @@ module top_ulx3s
   assign usb_fpga_pu_dn = 1'b1;
 
   // clock generation
-  wire clk_locked;
+  // Modified for 960x540 @ 60Hz: 40MHz pixel clock, 200MHz shift clock (for ODDR)
+  // ODDR at 200MHz produces 400MHz effective TMDS rate (200MHz × 2)
+  localparam pixel_f = 40000000; // 40MHz for 960x540@60Hz
+  
   wire [3:0] clocks;
+  wire shift_clk = clocks[0];      // 200MHz shift clock for ODDR (produces 400MHz TMDS via DDR)
+  wire pixel_clk = clocks[1];      // 40MHz pixel clock
+  wire sdram_clk_internal = clocks[2]; // 100MHz for SDRAM
+  wire clk_locked;
+  
   ecp5pll
   #(
-      .in_hz( 25*1000000),
-    .out0_hz(125*1000000),
-    .out1_hz( 25*1000000)
-    // ,
-    // .out2_hz(125*1000000), .out2_deg(90)
+    .in_hz(25000000),
+    .out0_hz(pixel_f * 5),         // 200MHz shift clock (40MHz * 5, DDR makes it 400MHz effective)
+    .out1_hz(pixel_f),             // 40MHz pixel clock
+    .out2_hz(100000000),           // 100MHz SDRAM clock
+    .out3_hz(0)                    // Disable 4th output
   )
   ecp5pll_inst
   (
     .clk_i(clk_25mhz),
     .clk_o(clocks),
-    .locked(clk_locked),
-
-    .phasesel(2'b00),
-    .phasedir(1'b0), 
-    .phasestep(1'b0), 
-    .phaseloadreg(1'b0)
+    .locked(clk_locked)
   );
-  wire pll_125mhz  = clocks[0]; // shift clock
-  wire pll_25mhz   = clocks[1]; // pixel clock
-  wire clk         = clocks[1]; // CPU and TI99/4A system
-  wire clk_sdram   = clocks[0]; // SDRAM core
+
+  wire clk = pixel_clk;          // CPU and TI99/4A system (40MHz)
 
   // ===============================================================
   // Joystick for OSD control and games
@@ -294,21 +295,21 @@ module top_ulx3s
   // ROM
 `ifndef CONSOLE_ROM_IN_SDRAM
   wire [7:0] rom_out_lo, rom_out_hi;
-  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pll_25mhz, ADR[11:0], { rom_out_hi, rom_out_lo} );
+  rom16 #(16, 12, 8192/2, "roms/994arom.mem") sysrom(pixel_clk, ADR[11:0], { rom_out_hi, rom_out_lo} );
 `endif
   // SCRATCHPAD (here 1K not 256bytes)
 `ifndef PAD_IN_SDRAM
   wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;
   wire pad_we_hi = pad_sel && !RAMUB && !RAMWE;
   wire [7:0] pad_out_lo, pad_out_hi;
-  dualport_par #(8, 9) pad_lb(pll_25mhz, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[ 8:0], pad_out_lo);
-  dualport_par #(8, 9) pad_hb(pll_25mhz, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pll_25mhz, ADR[ 8:0], pad_out_hi);
+  dualport_par #(8, 9) pad_lb(pixel_clk, pad_we_lo, ADR[ 8:0], sram_pins_dout[ 7:0], pixel_clk, ADR[ 8:0], pad_out_lo);
+  dualport_par #(8, 9) pad_hb(pixel_clk, pad_we_hi, ADR[ 8:0], sram_pins_dout[15:8], pixel_clk, ADR[ 8:0], pad_out_hi);
 `endif
 
 `ifndef CONSOLE_GROM_IN_SDRAM
   // GROM 24K
   wire [7:0] gro_out_lo, gro_out_hi;
-  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pll_25mhz, ADR[13:0], {gro_out_hi, gro_out_lo } );
+  rom16 #(16,14,24576/2,"roms/994agrom.mem") sysgrom(pixel_clk, ADR[13:0], {gro_out_hi, gro_out_lo } );
 `endif 
   // GROM extension space for cartridges, so that we can load something in addition to system GROMs.
   // This space is 32K for the ULX3S, two 16K RAM blocks. Fills the range 6000..DFFF (here actually to FFFF).
@@ -323,8 +324,8 @@ module top_ulx3s
   wire [15:0] grom_ext_out;
   wire grom_ext_we_lo = grom_ext_sel && !RAMLB && !RAMWE;
   wire grom_ext_we_hi = grom_ext_sel && !RAMUB && !RAMWE;
-  dualport_par #(8, 14) grom_ext_lb(pll_25mhz, grom_ext_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[13:0], grom_ext_out[7:0]);
-  dualport_par #(8, 14) grom_ext_hb(pll_25mhz, grom_ext_we_hi, ADR[13:0], sram_pins_dout[15:8], pll_25mhz, ADR[13:0], grom_ext_out[15:8]);
+  dualport_par #(8, 14) grom_ext_lb(pixel_clk, grom_ext_we_lo, ADR[13:0], sram_pins_dout[ 7:0], pixel_clk, ADR[13:0], grom_ext_out[7:0]);
+  dualport_par #(8, 14) grom_ext_hb(pixel_clk, grom_ext_we_hi, ADR[13:0], sram_pins_dout[15:8], pixel_clk, ADR[13:0], grom_ext_out[15:8]);
 `endif
 
   // RAM expansion, 32K.
@@ -332,8 +333,8 @@ module top_ulx3s
 `ifndef USE_SDRAM
   wire ram_exp_we_lo = ram_sel && !RAMLB && !RAMWE;
   wire ram_exp_we_hi = ram_sel && !RAMUB && !RAMWE;
-  dualport_par #(8, 14) ram_exp_lb(pll_25mhz, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pll_25mhz, ram_exp_addr, ram_expansion_out[7:0]);
-  dualport_par #(8, 14) ram_exp_hb(pll_25mhz, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pll_25mhz, ram_exp_addr, ram_expansion_out[15:8]);
+  dualport_par #(8, 14) ram_exp_lb(pixel_clk, ram_exp_we_lo, ram_exp_addr, sram_pins_dout[ 7:0], pixel_clk, ram_exp_addr, ram_expansion_out[7:0]);
+  dualport_par #(8, 14) ram_exp_hb(pixel_clk, ram_exp_we_hi, ram_exp_addr, sram_pins_dout[15:8], pixel_clk, ram_exp_addr, ram_expansion_out[15:8]);
 `endif
 
 `ifdef EXTERNAL_VRAM
@@ -341,8 +342,8 @@ module top_ulx3s
   wire vra_we_lo = vra_sel && !RAMLB && !RAMWE;
   wire vra_we_hi = vra_sel && !RAMUB && !RAMWE;
   wire [7:0] vra_out_lo, vra_out_hi;
-  dualport_par #(8,13) vra_lb(pll_125mhz, vra_we_lo, ADR[12:0], sram_pins_dout[ 7:0], pll_125mhz, ADR[12:0], vra_out_lo);
-  dualport_par #(8,13) vra_hb(pll_125mhz, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], pll_125mhz, ADR[12:0], vra_out_hi);
+  dualport_par #(8,13) vra_lb(sdram_clk_internal, vra_we_lo, ADR[12:0], sram_pins_dout[ 7:0], sdram_clk_internal, ADR[12:0], vra_out_lo);
+  dualport_par #(8,13) vra_hb(sdram_clk_internal, vra_we_hi, ADR[12:0], sram_pins_dout[15:8], sdram_clk_internal, ADR[12:0], vra_out_hi);
 `endif  
 
 /*
@@ -351,8 +352,8 @@ module top_ulx3s
   // SYS writes, SYS reads
   wire dsr_we_lo = dsr_sel && !RAMLB && !RAMWE;
   wire dsr_we_hi = dsr_sel && !RAMUB && !RAMWE;
-  dualport_par #(8,12) dsr_lb(pll_25mhz, dsr_we_lo, ADR[11:0], sram_pins_dout[ 7:0], pll_25mhz, ADR[11:0], dsr_out[ 7:0]);
-  dualport_par #(8,12) dsr_hb(pll_25mhz, dsr_we_hi, ADR[11:0], sram_pins_dout[15:8], pll_25mhz, ADR[11:0], dsr_out[15:8]);
+  dualport_par #(8,12) dsr_lb(pixel_clk, dsr_we_lo, ADR[11:0], sram_pins_dout[ 7:0], pixel_clk, ADR[11:0], dsr_out[ 7:0]);
+  dualport_par #(8,12) dsr_hb(pixel_clk, dsr_we_hi, ADR[11:0], sram_pins_dout[15:8], pixel_clk, ADR[11:0], dsr_out[15:8]);
 */
   wire addr_strobe;
 
@@ -390,7 +391,7 @@ module top_ulx3s
   // assign gp[12] = ram_sel;
   
   SDRAM sdram_i (
-    .clk_in(clk_sdram),     // controller clock
+    .clk_in(sdram_clk_internal),     // controller clock (100MHz)
     // interface to the SDRAM chip
     .sd_data(sdram_d),          // 16 bit databus
     .sd_addr(sdram_a),          // 13 bit multiplexed address bus
@@ -401,7 +402,7 @@ module top_ulx3s
     .sd_ras(sdram_rasn),        // row address select
     .sd_cas(sdram_casn),        // columns address select
     .sd_cke(sdram_cke),         // clock enable
-    .sd_clk(sdram_clk),         // chip clock (inverted from input clk)
+    .sd_clk(sdram_clk),         // chip clock output to SDRAM chip
     // interface to TMS9900 et al
     .din(sram_pins_dout),        // data input from cpu
     .dout(ram_expansion_out),    // data output to cpu
@@ -442,8 +443,6 @@ module top_ulx3s
   wire hsync, vsync;
 
 //-------------------------------------------------------------------
-
-  wire clk = pll_25mhz;
 
   // need to implement SRAM here
 
@@ -610,7 +609,7 @@ module top_ulx3s
   )
   spi_osd_inst
   (
-    .clk_pixel(pll_25mhz), .clk_pixel_ena(1),
+    .clk_pixel(pixel_clk), .clk_pixel_ena(1),
     .i_r(  red_out),
     .i_g(green_out),
     .i_b( blue_out),
@@ -623,7 +622,7 @@ module top_ulx3s
   // Buffer signals going to the DVI conversion.
   reg [7:0] epr_osd_vga_r, epr_osd_vga_g, epr_osd_vga_b;
   reg epr_osd_vga_hsync, epr_osd_vga_vsync, epr_osd_vga_blank;
-  always @(posedge pll_25mhz)
+  always @(posedge pixel_clk)
   begin 
     epr_osd_vga_r     <= osd_vga_r;
     epr_osd_vga_g     <= osd_vga_g;
@@ -643,8 +642,8 @@ module top_ulx3s
   )
   DVI_out_i
   (
-    .pixclk(pll_25mhz),
-    .pixclk_x5(pll_125mhz),
+    .pixclk(pixel_clk),
+    .pixclk_x5(shift_clk),
     .red(   epr_osd_vga_r),
     .green( epr_osd_vga_g),
     .blue(  epr_osd_vga_b), 
@@ -665,8 +664,8 @@ module top_ulx3s
   )
   vga2dvid_instance
   (
-    .clk_pixel(pll_25mhz),
-    .clk_shift(pll_125mhz),
+    .clk_pixel(pixel_clk),
+    .clk_shift(shift_clk),
     .in_red(osd_vga_r),
     .in_green(osd_vga_g),
     .in_blue(osd_vga_b),
@@ -680,10 +679,10 @@ module top_ulx3s
   );
   endgenerate
 
-  ODDRX1F ddr0_clock (.D0(tmds3[0]), .D1(tmds3[1]), .Q(gpdi_dp[3]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_red   (.D0(tmds2[0]), .D1(tmds2[1]), .Q(gpdi_dp[2]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(pll_125mhz), .RST(1'b0));
-  ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(pll_125mhz), .RST(1'b0));
+  ODDRX1F ddr0_clock (.D0(tmds3[0]), .D1(tmds3[1]), .Q(gpdi_dp[3]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_red   (.D0(tmds2[0]), .D1(tmds2[1]), .Q(gpdi_dp[2]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(shift_clk), .RST(1'b0));
+  ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(shift_clk), .RST(1'b0));
 
 
 

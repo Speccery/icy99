@@ -14,12 +14,13 @@ HOSTNAME := $(shell hostname)
 # Define USE_SDRAM for conditional compilation
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES = -DUSE_SDRAM
+    PROJ = ulx3s_sdram
 else
     DEFINES = 
+    PROJ = ulx3s_nosdram
 endif
 
 # Target files
-PROJ = ulx3s
 TOP_MODULE = top_ulx3s
 VERILOG_FILES = \
     ../src/dvi.v \
@@ -96,8 +97,14 @@ ujprog: $(BITSTREAM)
 	@echo "Programming ULX3S with ujprog..."
 	ujprog $<
 
-# Clean build files
+# Clean build files for current configuration
 clean:
+	rm -f $(BUILD_DIR)/$(PROJ).json
+	rm -f $(BUILD_DIR)/$(PROJ)_out.cfg
+	rm -f $(BITSTREAM)
+
+# Clean all build files (both SDRAM and non-SDRAM)
+cleanall:
 	rm -rf $(BUILD_DIR)
 
 # Show resource usage
@@ -120,13 +127,14 @@ help:
 	@echo "Targets:"
 	@echo "  all        - Build bitstream (default)"
 	@echo "  prog       - Program ULX3S via OpenOCD"
-	@echo "  ujprog     - Program ULX3S via ujprog"
-	@echo "  clean      - Clean build files"
-	@echo "  sdram      - Build with SDRAM support (default)"
-	@echo "  no-sdram   - Build without SDRAM support"
-	@echo "  help       - Show this help"
+  @echo "  ujprog     - Program ULX3S via ujprog"
+  @echo "  clean      - Clean current build files"
+  @echo "  cleanall   - Clean all build files"
+  @echo "  sdram      - Build with SDRAM support (default)"
+  @echo "  no-sdram   - Build without SDRAM support"
+  @echo "  help       - Show this help"
 	@echo ""
 	@echo "Options:"
 	@echo "  SDRAM_SUPPORT=1|0  - Enable/disable SDRAM (default: 1)"
 
-.PHONY: all prog ujprog clean resource-usage no-sdram sdram help
+.PHONY: all prog ujprog clean cleanall resource-usage no-sdram sdram help
