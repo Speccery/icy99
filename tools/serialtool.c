@@ -12,6 +12,7 @@
  
 
 unsigned fpga_addr=0;
+int verbose = 0;
 
 // Opens the specified serial port, sets it up for binary communication,
 // configures its read timeouts, and sets its baud rate.
@@ -129,9 +130,8 @@ ssize_t read_port(int fd, uint8_t * buffer, size_t size)
   return received;
 }
 
-int try_sync(int fd) {
+int try_sync(int fd, int verbose) {
 	uint8_t buf[16];
-	unsigned long realsize;
 	// printf("%s\n", __PRETTY_FUNCTION__);
   write_port(fd, (uint8_t *)".", 1);
 	buf[0] = 0;
@@ -140,6 +140,11 @@ int try_sync(int fd) {
       fprintf(stderr, "Timeout in %s\n", __PRETTY_FUNCTION__);
       return 0;
   }        
+  if(verbose) {
+    if(buf[0] != '.') {
+      fprintf(stderr, "try_sync read %d bytes, expected '.', got 0x%02X\n", bytes, buf[0]);
+    }
+  }
   return bytes > 0 && buf[0] == '.';
 }
 
@@ -189,11 +194,8 @@ unsigned get_repeat_counter_16(int fd) {
 }
 
 int receive_block_complete(int fd, void *block, size_t size, unsigned timeout) {
-  unsigned realsize = 0, read;
+  unsigned realsize = 0;
   uint8_t *result;
-	int loops = 0;
-  unsigned int u;
-  unsigned char *up;
 	// unsigned now = GetTickCount();
   result = (uint8_t *) block;
   // SerialTimeoutSet(timeout);
@@ -201,7 +203,7 @@ int receive_block_complete(int fd, void *block, size_t size, unsigned timeout) {
   do {
     ssize_t read = read_port(fd, result + realsize, size - realsize);
     realsize += read;
-		loops++;
+		// loops++;  // undefined variable, commented out
 		
 		if (realsize < size)
 			sleep(1);
@@ -233,7 +235,7 @@ int write_memory_block(int fd, unsigned char *source, unsigned address, int len)
     return -2;
   if(write_port(fd, source, chunk))
     return -3;
-  try_sync(fd);
+  try_sync(fd, verbose);
   return chunk;
 }
 
@@ -264,9 +266,10 @@ int load_file(int fd, char *filename, unsigned addr) {
 }
 
 void print_help(const char *progname) {
-  printf("Usage: %s [--port <serial_port>] <command> [arguments]\n\n", progname);
-  printf("Serial Port:\n");
+  printf("Usage: %s [options] <command> [arguments]\n\n", progname);
+  printf("Options:\n");
   printf("  --port <port>   Specify serial port (overrides SERIALTOOL_PORT env var)\n");
+  printf("  -v              Enable verbose output\n");
   printf("  Environment variable SERIALTOOL_PORT can be set to avoid specifying port\n\n");
   printf("Commands:\n");
   printf("  -w <filename> <address> <length>  Write file to memory\n");
@@ -304,14 +307,27 @@ int main(int argc, char *argv[])
     device = "/dev/ttyACM0";  // Default fallback
   }
   
-  int verbose = 0;
+  verbose = 0;  // Use global verbose variable
   if(verbose) printf("argc %d\n", argc);
   int argi = 1;
   
-  // Check for --port option
-  if(argc > 2 && !strcmp(argv[argi], "--port")) {
-    device = argv[argi + 1];
-    argi += 2;
+  // Check for options
+  while(argi < argc && argv[argi][0] == '-') {
+    if(!strcmp(argv[argi], "--port")) {
+      if(argi + 1 >= argc) {
+        fprintf(stderr, "Error: --port requires an argument\n");
+        print_help(argv[0]);
+        return 1;
+      }
+      device = argv[argi + 1];
+      argi += 2;
+    } else if(!strcmp(argv[argi], "-v")) {
+      verbose = 1;
+      argi++;
+    } else {
+      // Not an option we recognize, might be a command
+      break;
+    }
   }
   
   // Check if we have a command after port parsing
@@ -330,7 +346,7 @@ int main(int argc, char *argv[])
 
   int in_sync = 0;
   for(int tries = 0; tries < 512; tries++) {
-    if(try_sync(fd)) {
+    if(try_sync(fd, verbose)) {
       if(verbose || tries > 0) printf("Sync succeeded\n");
       in_sync = 1;
       break;
@@ -534,7 +550,7 @@ int main(int argc, char *argv[])
     }
   }
   // Check that we are still in sync
-  if(try_sync(fd)) {
+  if(try_sync(fd, verbose)) {
     if(verbose) printf("Sync succeeded\n");
   } else {
     fprintf(stderr, "Sync failed at the end, exiting.\n");
@@ -560,7 +576,7 @@ int main(int argc, char *argv[])
 
   } else { 
 
-  if(try_sync(fd)) {
+  if(try_sync(fd, verbose)) {
       printf("Sync succeeded\n");
     }
 
@@ -577,7 +593,7 @@ int main(int argc, char *argv[])
     printf("hw addr=0x%X ok=%d\n", a, ok);
     printf("Repeat counter: 0x%X\n", get_repeat_counter_16(fd));
     
-    if(try_sync(fd)) {
+    if(try_sync(fd, verbose)) {
       printf("Sync succeeded\n");
     }
   }

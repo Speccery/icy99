@@ -59,9 +59,9 @@ module top_ulx3s
   output wire   ftdi_rxd,   // output from FPGA to FTDI
   input  wire   ftdi_txd,   // input from FTDI to FPGA
 
-  // for secondary serial port we could use
-  // GND, GP27 (output) and GP26 (input)
-  input  wire [24:0] gp, 
+  // GPIO pins - GP are inputs, GN are outputs
+  input  wire [24:0] gp,    // GPIO inputs
+  output wire [1:0]  gn,         // serloader TX (output)
   output wire gp_25,
   output wire gp_26, 
   output wire gp_27,
@@ -447,39 +447,25 @@ module top_ulx3s
   // need to implement SRAM here
 
   // Serial port assignments begin
+  // Fixed GPIO pin assignments for serial ports:
+  // GP0 = serloader RX (input from external USB-serial adapter)
+  // GN0 = serloader TX (output to external USB-serial adapter)
+  // GP1 = TMS9902 RX (input)
+  // GN1 = TMS9902 TX (output)
+  // FTDI chip routes to ESP32
+  
   wire serloader_tx;
   wire tms9902_tx;
   
-  // `define SERIAL_TO_TMS9902
-  // `define SERIAL_TO_ESP  // EP commented out 2025-11-02
-`ifndef SERIAL_TO_ESP
-  `ifdef SERIAL_TO_TMS9902
-    // Here our serial traffic goes to TMS9902
-    wire tms9902_rx = ftdi_txd;
-    assign ftdi_rxd = tms9902_tx;
-    assign gp_27 = tms9902_tx;
-    wire serloader_rx = 1'b1;   // serloader gets no data
-    assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
-  `else
-    // Route serial port to the serloader component.
-    wire serloader_rx = ftdi_txd;  // all incoming traffic goes to serloader 
-    assign ftdi_rxd = serloader_tx; // send to FTDI chip  
-    assign wifi_rxd = 1'b1;		  // let the ESP32 be silent for now.
-  `endif
-`else
-  wire serloader_rx = 1'b1;
-  assign wifi_rxd = ftdi_txd; // passthru for esp32 micropython
+  wire serloader_rx = gp[0];        // serloader UART receive from external USB-serial adapter
+  assign gn[0] = serloader_tx;       // serloader UART transmit to external USB-serial adapter
+  
+  wire tms9902_rx = gp[1];          // TMS9902 UART receive
+  assign gn[1] = tms9902_tx;         // TMS9902 UART transmit
+  
+  // Route FTDI to ESP32 for micropython passthrough
+  assign wifi_rxd = ftdi_txd;       // passthru for esp32 micropython
   assign ftdi_rxd = wifi_txd;
-`endif
-
-`ifndef SERIAL_TO_TMS9902  
-  wire tms9902_rx = gp[0]; // pins changed for TIPI gp[26];   // receive from FTDI chip
-  assign gp_27 = tms9902_tx;
-`endif
-  // wire serloader_rx = gp[26];     // serloader UART receive GPIO_3;
-  // assign gp_27 = serloader_tx;   // serloader UART transit, was GPIO_2  on the FLEA OHM
-  // wire tms9902_rx = ftdi_txd;   // receive from FTDI chip
-  // assign ftdi_rxd = tms9902_tx; // send to FTDI chip
   // Serial port assignments end
 
   // PS2 keyboard - if there is signals from either port go with that.
@@ -506,8 +492,14 @@ module top_ulx3s
   wire tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
   wire tipi_r_reset;        // output to  Raspi, GPIO_26
   // Assign signals to output pins
+  `ifdef TIPI_SUPPORT
   assign gp_25 = tipi_r_reset;        // output to  Raspi, GPIO_26
   assign gp_26 = tipi_r_din;          // output to  Raspi, GPIO_20, SPI data to Raspi
+  `else
+  assign gp_25 = 1'b0;
+  assign gp_26 = 1'b0;
+  assign gp_27 = serloader_tx; // 1'b0;
+  `endif
   wire tipi_led0;           // TIPI status LED (DSR enabled)
 
 `ifdef LCD_SUPPORT

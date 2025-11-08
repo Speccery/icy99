@@ -11,12 +11,12 @@ SDRAM_SUPPORT ?= 0
 # Get hostname for build directory (like FleaFPGA Makefile)
 HOSTNAME := $(shell hostname)
 
-# Define USE_SDRAM for conditional compilation
+# Define compilation flags
+DEFINES = 
 ifeq ($(SDRAM_SUPPORT),1)
-    DEFINES = -DUSE_SDRAM
+    DEFINES += -DUSE_SDRAM
     PROJ = ulx3s_sdram
 else
-    DEFINES = 
     PROJ = ulx3s_nosdram
 endif
 
@@ -120,6 +120,25 @@ no-sdram:
 sdram:
 	$(MAKE) SDRAM_SUPPORT=1
 
+reset:
+	../tools/serialtool -p 1000008 FC
+	../tools/serialtool -p 1000008 FF
+
+enter1:
+	../tools/serialtool -p 1000005 ef
+	../tools/serialtool -p 1000005 ff
+	
+enter2:
+	../tools/serialtool -p 1000001 ef
+	../tools/serialtool -p 1000001 ff
+
+load_parsec:
+	# Parsec ROM
+	../tools/serialtool -w ../dev-sd/cart/parsecc.bin 200000 8192
+	# Parsec GROM
+	../tools/serialtool -w ../dev-sd/grom/parsecg.bin 16000 24576
+
+
 # Show help
 help:
 	@echo "ULX3S icy99 TI-99/4A Build System"
@@ -127,14 +146,17 @@ help:
 	@echo "Targets:"
 	@echo "  all        - Build bitstream (default)"
 	@echo "  prog       - Program ULX3S via OpenOCD"
-  @echo "  ujprog     - Program ULX3S via ujprog"
-  @echo "  clean      - Clean current build files"
-  @echo "  cleanall   - Clean all build files"
-  @echo "  sdram      - Build with SDRAM support (default)"
-  @echo "  no-sdram   - Build without SDRAM support"
-  @echo "  help       - Show this help"
+	@echo "  ujprog     - Program ULX3S via ujprog"
+	@echo "  clean      - Clean current build files"
+	@echo "  cleanall   - Clean all build files"
+	@echo "  sdram      - Build with SDRAM support (default)"
+	@echo "  no-sdram   - Build without SDRAM support"
+	@echo "  help       - Show this help"
 	@echo ""
 	@echo "Options:"
-	@echo "  SDRAM_SUPPORT=1|0  - Enable/disable SDRAM (default: 1)"
+	@echo "  SDRAM_SUPPORT=1|0      - Enable/disable SDRAM (default: 0)"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make SDRAM_SUPPORT=1 - Build with SDRAM"
 
 .PHONY: all prog ujprog clean cleanall resource-usage no-sdram sdram help

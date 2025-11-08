@@ -646,16 +646,38 @@ tms9918 vdp(
   wire [7:0] bootloader_din, bootloader_dout;
   wire bootloader_read_ack, bootloader_write_ack;
 
+  // When external_bl32=1, support both bootloaders with priority-based arbitration
+  // Priority: xbootloader (ESP32) has priority over sbootloader (serloader)
+  wire both_bootloaders = external_bl32;  // When 1, both bootloaders are enabled
+  wire xbootloader_active = xbootloader_read_rq | xbootloader_write_rq;
+  wire sbootloader_can_access = ~xbootloader_active;  // serloader can only access when ESP32 is idle
+  
   // Declare and assign bootloader buses based on used bootloader
-  assign bootloader_addr     = external_bl32 ? xbootloader_addr     : sbootloader_addr;
-  assign bootloader_dout     = external_bl32 ? xbootloader_dout     : sbootloader_dout;
-  assign bootloader_read_rq  = external_bl32 ? xbootloader_read_rq  : sbootloader_read_rq;
-  assign bootloader_write_rq = external_bl32 ? xbootloader_write_rq : sbootloader_write_rq;
+  assign bootloader_addr     = both_bootloaders ? 
+                               (xbootloader_active ? xbootloader_addr : sbootloader_addr) :
+                               (external_bl32 ? xbootloader_addr : sbootloader_addr);
+  assign bootloader_dout     = both_bootloaders ? 
+                               (xbootloader_active ? xbootloader_dout : sbootloader_dout) :
+                               (external_bl32 ? xbootloader_dout : sbootloader_dout);
+  assign bootloader_read_rq  = both_bootloaders ? 
+                               (xbootloader_read_rq | (sbootloader_read_rq & sbootloader_can_access)) :
+                               (external_bl32 ? xbootloader_read_rq : sbootloader_read_rq);
+  assign bootloader_write_rq = both_bootloaders ? 
+                               (xbootloader_write_rq | (sbootloader_write_rq & sbootloader_can_access)) :
+                               (external_bl32 ? xbootloader_write_rq : sbootloader_write_rq);
   // assign the acks based on which one is actually used
-  assign xbootloader_read_ack  = external_bl32 ? bootloader_read_ack  : 1'b0;
-  assign xbootloader_write_ack = external_bl32 ? bootloader_write_ack : 1'b0;
-  assign sbootloader_read_ack  = external_bl32 ? 1'b0 : bootloader_read_ack ;
-  assign sbootloader_write_ack = external_bl32 ? 1'b0 : bootloader_write_ack ;
+  assign xbootloader_read_ack  = both_bootloaders ? 
+                                 (bootloader_read_ack & xbootloader_active) :
+                                 (external_bl32 ? bootloader_read_ack : 1'b0);
+  assign xbootloader_write_ack = both_bootloaders ? 
+                                 (bootloader_write_ack & xbootloader_active) :
+                                 (external_bl32 ? bootloader_write_ack : 1'b0);
+  assign sbootloader_read_ack  = both_bootloaders ? 
+                                 (bootloader_read_ack & sbootloader_can_access) :
+                                 (external_bl32 ? 1'b0 : bootloader_read_ack);
+  assign sbootloader_write_ack = both_bootloaders ? 
+                                 (bootloader_write_ack & sbootloader_can_access) :
+                                 (external_bl32 ? 1'b0 : bootloader_write_ack);
   // Both fed with the same data from memory
   assign xbootloader_din     = bootloader_din;
   assign sbootloader_din     = bootloader_din;
