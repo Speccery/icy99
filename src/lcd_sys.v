@@ -26,12 +26,14 @@ wire [15:0] pixel_data;
 wire [6:0] x;
 wire [5:0] y;
 
-// Use a quarter of clk as our spi_clk
+// Use a quarter of clk as our spi_clk at 25MHz
+// But we are now at 40MHz, so we can get 10MHz SPI which is too fast.
+// We divide by 8 to get 5MHz SPI
 reg spi_clk;
-reg [1:0] div = 2'b00;
+reg [2:0] div = 3'b000;
 always @(posedge clk) begin
-    spi_clk <= div[1];
-    div <= div + 2'd1;
+    spi_clk <= div[2];
+    div <= div + 3'd1;
 end
 
 // Need to write our pixels with ram_addr, ram_data_ram_wr
@@ -40,8 +42,8 @@ ram_source ram_source(spi_clk, reset, frame_begin, sample_pixel,
   pixel_index, pixel_data, clk, ram_wr, ram_addr, ram_data);
 
 // SPI Clock Generator
-parameter ClkFreq = 25000000; // Hz
-localparam SpiDesiredFreq = 6250000; // Hz
+parameter ClkFreq = 40000000; // 25000000; // Hz
+localparam SpiDesiredFreq = 5000000; // 6250000; // Hz
 localparam SpiPeriod = (ClkFreq + (SpiDesiredFreq * 2) - 1) / (SpiDesiredFreq * 2);
 localparam SpiFreq = ClkFreq / (SpiPeriod * 2);
 

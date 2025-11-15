@@ -12,7 +12,7 @@ SDRAM_SUPPORT ?= 0
 HOSTNAME := $(shell hostname)
 
 # Define compilation flags
-DEFINES = 
+DEFINES = -DLCD_SUPPORT
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = ulx3s_sdram
@@ -48,6 +48,9 @@ VERILOG_FILES = \
     ../src/pager612.v \
     ../src/ecp5pll.sv \
     ../src/sdram_cortex.v \
+    ../src/lcd_sys.v \
+    ../lcd/pmodoledrgb_controller.v \
+    ../lcd/ram_source.v \
     ../osd/osd.v \
     ../osd/spi_osd.v \
     ../osd/spirw_slave_v.v \

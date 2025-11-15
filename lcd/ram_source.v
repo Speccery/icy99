@@ -52,6 +52,6 @@ always @(posedge wr_clk)
   if (wr_en)
     mem[wr_addr] <= wr_data;
 
-initial $readmemh("lcd/ram_template.hex", mem);
+initial $readmemh("ram_template.hex", mem);
 
 endmodule
