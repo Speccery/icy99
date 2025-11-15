@@ -60,8 +60,8 @@ module top_ulx3s
   input  wire   ftdi_txd,   // input from FTDI to FPGA
 
   // GPIO pins - GP are inputs, GN are outputs
-  input  wire [24:0] gp,    // GPIO inputs
-  output wire [1:0]  gn,         // serloader TX (output)
+  input  wire [13:0] gp,    // GPIO inputs (0-13)
+  output wire [1:0]  gn,    // GPIO outputs (0-1 for serloader)
   output wire gp_25,
   output wire gp_26, 
   output wire gp_27,
@@ -72,6 +72,13 @@ module top_ulx3s
   output wire oled_resn,
   output wire oled_csn,
 `endif
+
+  // 12-bit DVI output board connected to J2 (separate signals from gp/gn)
+  output wire [17:14] gn_dvi_low,  // gn[14]=HS, gn[15]=B0, gn[16]=CK, gn[17]=B3
+  output wire [17:14] gp_dvi_low,  // gp[14]=VS, gp[15]=DE, gp[16]=B1, gp[17]=B2
+  output wire [24:21] gn_dvi_high, // gn[21]=G1, gn[22]=G3, gn[23]=R1, gn[24]=R3
+  output wire [24:21] gp_dvi_high, // gp[21]=G0, gp[22]=G2, gp[23]=R0, gp[24]=R2
+
   // Audio DACs (4 bits with the ULX3S)
   output wire [3:0] audio_l,
   output wire [3:0] audio_r
@@ -676,6 +683,24 @@ module top_ulx3s
   ODDRX1F ddr0_green (.D0(tmds1[0]), .D1(tmds1[1]), .Q(gpdi_dp[1]), .SCLK(shift_clk), .RST(1'b0));
   ODDRX1F ddr0_blue  (.D0(tmds0[0]), .D1(tmds0[1]), .Q(gpdi_dp[0]), .SCLK(shift_clk), .RST(1'b0));
 
+  // Copy signals to 12-bit DVI output pins on J2 connector
+  assign gn_dvi_low[14] = epr_osd_vga_hsync;  // HS
+  assign gp_dvi_low[14] = epr_osd_vga_vsync;  // VS
+  assign gp_dvi_low[15] = ~epr_osd_vga_blank; // DE
+  assign gn_dvi_low[15] = epr_osd_vga_b[4];   // B0 (using bit 4 of 8-bit value)
+  assign gn_dvi_low[16] = pixel_clk;          // CK
+  assign gp_dvi_low[16] = epr_osd_vga_b[5];   // B1
+  assign gn_dvi_low[17] = epr_osd_vga_b[7];   // B3
+  assign gp_dvi_low[17] = epr_osd_vga_b[6];   // B2
+
+  assign gn_dvi_high[21] = epr_osd_vga_g[5];   // G1
+  assign gp_dvi_high[21] = epr_osd_vga_g[4];   // G0
+  assign gn_dvi_high[22] = epr_osd_vga_g[7];   // G3
+  assign gp_dvi_high[22] = epr_osd_vga_g[6];   // G2
+  assign gn_dvi_high[23] = epr_osd_vga_r[5];   // R1
+  assign gp_dvi_high[23] = epr_osd_vga_r[4];   // R0
+  assign gn_dvi_high[24] = epr_osd_vga_r[7];   // R3
+  assign gp_dvi_high[24] = epr_osd_vga_r[6];   // R2
 
 
 endmodule

@@ -2,7 +2,8 @@
 # Author: Erik Piehl
 
 # APIO package manager paths 
-YOSYSPATH := $(shell echo $(HOME)/.apio/packages/tools-oss-cad-suite/bin)
+# YOSYSPATH := $(shell echo $(HOME)/.apio/packages/tools-oss-cad-suite/bin)
+YOSYSPATH := $(shell echo $(HOME)/.apio/packages/oss-cad-suite/bin)
 export YOSYSPATH
 
 # Build options
@@ -12,7 +13,8 @@ SDRAM_SUPPORT ?= 0
 HOSTNAME := $(shell hostname)
 
 # Define compilation flags
-DEFINES = -DLCD_SUPPORT
+#  -DLCD_SUPPORT
+DEFINES =
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = ulx3s_sdram
