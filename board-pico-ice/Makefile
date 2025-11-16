@@ -17,8 +17,11 @@ SDRAM_SUPPORT ?= 0
 HOSTNAME := $(shell hostname)
 
 # Define compilation flags
-#  -DLCD_SUPPORT
-DEFINES =
+#  -DUSE_SPRAM_FOR_VRAM: Use iCE40UP5K SPRAM for VDP video RAM (32KB available)
+#  Size reduction for iCE40UP5K: TRACEBUFFER and TMS9902_SUPPORT already disabled in sys.v
+#  Keep serloader (useful for debugging and keyboard input)
+#  Keep PCIR_SUPPORT in tms9900.v (useful for debugging before video works)
+DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = pico_ice_sdram
@@ -30,10 +33,10 @@ endif
 TOP_MODULE = top_pico_ice
 VERILOG_FILES = \
 	$(TOP_MODULE).v \
+	spi_flash_rom.v \
     ../src/dvi.v \
     ../src/ram2.v \
     ../src/sys.v \
-    ../src/rom.v \
     ../src/tms9900.v \
     ../src/alu9900.v \
     ../src/tms9902.v \
@@ -65,13 +68,13 @@ all: $(BUILD_DIR)/$(PROJ).uf2
 
 # JSON synthesis
 $(BUILD_DIR)/$(PROJ).json: $(VERILOG_FILES) | $(BUILD_DIR)
-	@echo "Synthesizing design with Yosys..."
-	cd $(BUILD_DIR) && $(YOSYSPATH)/yosys -q -p "synth_ice40 -json $(PROJ).json" $(DEFINES) $(addprefix ../,$(VERILOG_FILES))
+	@echo "Synthesizing design with Yosys (ABC9 optimization for area)..."
+	cd $(BUILD_DIR) && $(YOSYSPATH)/yosys -q -p "synth_ice40 -abc9 -device u -json $(PROJ).json" $(DEFINES) $(addprefix ../,$(VERILOG_FILES))
 
 # Place and route
 $(BUILD_DIR)/$(PROJ)_out.asc: $(BUILD_DIR)/$(PROJ).json pico_ice.pcf
-	@echo "Place and route with NextPNR..."
-	$(YOSYSPATH)/nextpnr-ice40 $(DEVICE) --json $(BUILD_DIR)/$(PROJ).json --pcf pico_ice.pcf --asc $@
+	@echo "Place and route with NextPNR (relaxed timing for tight fit)..."
+	$(YOSYSPATH)/nextpnr-ice40 $(DEVICE) --json $(BUILD_DIR)/$(PROJ).json --pcf pico_ice.pcf --asc $@ --placer heap --seed 1 --ignore-loops
 
 # Generate bitstream
 $(BITSTREAM): $(BUILD_DIR)/$(PROJ)_out.asc
@@ -79,7 +82,37 @@ $(BITSTREAM): $(BUILD_DIR)/$(PROJ)_out.asc
 	rm -f $@
 	$(YOSYSPATH)/icepack $< $@
 
-$(BUILD_DIR)/$(PROJ).uf2: $(BITSTREAM)
+# ROM/GROM files
+ROM_FILE = ../roms/994aROM.Bin
+GROM_FILE = ../roms/994AGROM.Bin
+
+# Flash memory layout:
+# 0x000000 - 0x03FFFF (256KB): FPGA bitstream (padded)
+# 0x040000 - 0x041FFF (8KB):   Console ROM
+# 0x042000 - 0x047FFF (24KB):  Console GROM  
+# 0x048000 - 0x04FFFF (32KB):  Cartridge ROM space (optional)
+FLASH_SIZE = 262144
+ROM_OFFSET = 262144
+GROM_OFFSET = 270336
+
+# Combined bitstream with ROM data
+$(BUILD_DIR)/$(PROJ)_combined.bin: $(BITSTREAM) $(ROM_FILE) $(GROM_FILE)
+	@echo "Creating combined flash image with ROM data..."
+	@# Start with the bitstream
+	cp $(BITSTREAM) $@
+	@# Pad to 256KB (FLASH_SIZE bytes)
+	@CURRENT_SIZE=$$(stat -f%z $@ 2>/dev/null || stat -c%s $@ 2>/dev/null); \
+	PADDING=$$(($(FLASH_SIZE) - $$CURRENT_SIZE)); \
+	if [ $$PADDING -gt 0 ]; then \
+		dd if=/dev/zero bs=1 count=$$PADDING >> $@ 2>/dev/null; \
+	fi
+	@# Append Console ROM (8KB at offset 256KB)
+	cat $(ROM_FILE) >> $@
+	@# Append Console GROM (24KB)
+	cat $(GROM_FILE) >> $@
+	@echo "Combined image size: $$(stat -f%z $@ 2>/dev/null || stat -c%s $@) bytes"
+
+$(BUILD_DIR)/$(PROJ).uf2: $(BUILD_DIR)/$(PROJ)_combined.bin
 	rm -f $@	
 	bin2uf2 -o $@ $<	
 

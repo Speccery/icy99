@@ -1,14 +1,8 @@
-// top_blackice2.v 
-// EP (C) 2019
+// top_pico_ice.v
+// EP (C) 2025-11-16
 // This is the toplevel for the platform neutral sys.v which
 // implements the TI-99/4A.
-
-//-------------------------------------------------------------------
-// PLL added by EP 2019-08-30
-//-------------------------------------------------------------------
-// icepll -i 100 -o 25 -m -f erik_pll.v
-// PLL configuration written to: erik_pll.v
-//-------------------------------------------------------------------
+//------------------------------------------------------------
 
 module top_pico_ice(
   input  CLK,
@@ -87,13 +81,152 @@ SB_PLL40_PAD #(
   wire vde;
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   wire [22:0] sys_addr;
-  assign ADR = sys_addr[17:0];
+  
+  // ========================================================================
+  // Memory subsystem for pico-ice
+  // - VDP VRAM: Uses SPRAM (32KB) via USE_SPRAM_FOR_VRAM define in tms9918.v
+  // - Scratchpad: Block RAM (1KB) at 0x8000-0x83FF
+  // - ROM/GROM: TBD (SPI flash or remaining SPRAM blocks)
+  // ========================================================================
+  
+  // Reset signal
+  wire reset;
+  reg [7:0] reset_counter = 8'h00;
+  assign reset = (reset_counter != 8'hFF);
+  always @(posedge pixel_clk) begin
+    if (reset_counter != 8'hFF)
+      reset_counter <= reset_counter + 8'd1;
+  end
+
+  // Scratchpad RAM - 1KB at 0x8000-0x83FF using block RAM (EBR)
+  // TI-99/4A originally has 256 bytes at 0x8300, we provide full 1KB at 0x8000-0x83FF
+  wire pad_sel = (sys_addr[22:10] == 13'b0000_0000_1000_0); // 0x8000-0x83FF
+  wire [15:0] pad_data_out;
+  reg [15:0] scratchpad [0:511];  // 512 words x 16 bits = 1KB
+  reg [15:0] pad_data_reg;
+  
+  always @(posedge pixel_clk) begin
+    if (pad_sel) begin
+      if (!RAMWE) begin  // RAMWE is active low
+        scratchpad[sys_addr[9:1]] <= sram_pins_dout;
+      end
+      pad_data_reg <= scratchpad[sys_addr[9:1]];
+    end
+  end
+  
+  assign pad_data_out = pad_data_reg;
+  
+  // ========================================================================
+  // SPI Flash ROM/GROM
+  // Console ROM: 8KB at flash offset 0x040000, mapped to CPU 0x0000-0x1FFF
+  // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module
+  // ========================================================================
+  
+  // ROM selection: sys.v address 0x00000-0x00FFF (word addresses)
+  wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000);  // 8K @ 0x00000
+  // GROM selection: sys.v maps GROM to address 0x10000-0x17FFF (word addresses)
+  wire grom_sel = (sys_addr[22:15] == 8'b0000_0001);      // 64K @ 0x10000
+  
+  wire [15:0] flash_rom_data;
+  wire flash_rom_ready;
+  
+  /*
+  // Temporarily stub out flash ROM to test if design fits without it
+  assign flash_rom_data = 16'h0000;
+  assign flash_rom_ready = 1'b1;
+  assign flash_mosi_out = 1'b0;
+  assign ICE_15 = 1'b0;  // flash_clk
+  assign ICE_16 = 1'b1;  // flash_csn (inactive high)
+  */
+
+  spi_flash_rom flash_rom(
+    .clk(pixel_clk),
+    .reset(reset),
+    
+    // SRAM-style interface
+    .addr(sys_addr),
+    .rom_sel(rom_sel),
+    .grom_sel(grom_sel),
+    .data_out(flash_rom_data),
+    .data_ready(flash_rom_ready),
+    
+    // SPI Flash pins - connect to QSPI flash (shared with PSRAM)
+    .flash_csn(ICE_16),     // FLASH_CSN
+    .flash_clk(ICE_15),     // FLASH_CLK  
+    .flash_mosi(flash_mosi_out),  // FLASH_IO0 (bidirectional, need tristate)
+    .flash_miso(flash_miso_in)    // FLASH_IO1 (bidirectional, need tristate)
+  );
+  
+  // Handle bidirectional QSPI pins with tristate buffers
+  // For simple SPI read, we only need IO0 (MOSI) and IO1 (MISO)
+  wire flash_mosi_out, flash_miso_in;
+  
+  // ICE_14 is FLASH_IO0 (MOSI - output only during SPI operations)
+  SB_IO #(
+    .PIN_TYPE(6'b1010_01),  // PIN_OUTPUT_TRISTATE + PIN_INPUT
+    .PULLUP(1'b0)
+  ) flash_io0_buf (
+    .PACKAGE_PIN(ICE_14),
+    .OUTPUT_ENABLE(~ICE_16),  // Drive when CS is low
+    .D_OUT_0(flash_mosi_out),
+    .D_IN_0()  // Not used for MOSI
+  );
+  
+  // ICE_17 is FLASH_IO1 (MISO - input during SPI operations)
+  SB_IO #(
+    .PIN_TYPE(6'b1010_01),  // PIN_OUTPUT_TRISTATE + PIN_INPUT
+    .PULLUP(1'b1)           // Pullup when not driven
+  ) flash_io1_buf (
+    .PACKAGE_PIN(ICE_17),
+    .OUTPUT_ENABLE(1'b0),     // Always input for MISO
+    .D_OUT_0(1'b0),
+    .D_IN_0(flash_miso_in)
+  );
+  
+  // ICE_12 and ICE_13 are FLASH_IO2 and FLASH_IO3 (not used in standard SPI mode)
+  // Leave them as high-Z with pullups
+  SB_IO #(
+    .PIN_TYPE(6'b1010_01),
+    .PULLUP(1'b1)
+  ) flash_io2_buf (
+    .PACKAGE_PIN(ICE_12),
+    .OUTPUT_ENABLE(1'b0),
+    .D_OUT_0(1'b0),
+    .D_IN_0()
+  );
+  
+  SB_IO #(
+    .PIN_TYPE(6'b1010_01),
+    .PULLUP(1'b1)
+  ) flash_io3_buf (
+    .PACKAGE_PIN(ICE_13),
+    .OUTPUT_ENABLE(1'b0),
+    .D_OUT_0(1'b0),
+    .D_IN_0()
+  );
+  
+  // SRAM interface signals
+  wire [15:0] sram_pins_din;
+  wire [15:0] sram_pins_dout;
+  wire sram_pins_drive;  // Output from sys - unused on pico-ice (no external SRAM)
+  wire RAMOE, RAMWE, RAMCS, RAMLB, RAMUB;
+  wire [22:0] ADR;
+  
+  // Data multiplexer: return data based on what's selected
+  assign sram_pins_din = pad_sel ? pad_data_out :
+                         (rom_sel || grom_sel) ? flash_rom_data :
+                         16'h0000;
+  
+  // Ensure PSRAM chip select stays high (we're not using PSRAM yet)
+  assign ICE_37 = 1'b1;  // SRAM_SS - PSRAM chip select (active low, keep high)
 
   sys ti994a(
       .clk(pixel_clk), 
       .LED(LED_R), 
-      .tms9902_tx(tms9902_tx), 
-      .tms9902_rx(tms9902_rx),
+
+      .tms9902_tx(1'b1), // these are reversed in sys.v module
+      .tms9902_rx(open),
+
       .RAMOE(RAMOE), 
       .RAMWE(RAMWE), 
       .RAMCS(RAMCS), 
@@ -110,7 +243,7 @@ SB_PLL40_PAD #(
       .blue(blue), 
       .hsync(hsync), 
       .vsync(vsync),
-      .cpu_reset_switch_n(DIG18),  
+      .cpu_reset_switch_n(ICE_10),  // ICE_10 is the user button, active low  
 `ifdef LCD_SUPPORT      
       // LCD signals
       .pin_cs(pin_cs), 
@@ -123,9 +256,22 @@ SB_PLL40_PAD #(
 `endif      
       .serloader_tx(serloader_tx), 
       .serloader_rx(serloader_rx), // bootloader UART
-    .vde(vde),    // Video display enable (active area)
-    .ps2clk(ps2_clk), 
-    .ps2dat(ps2_data)
+      // External bootloader interface (not used on pico-ice, tie off)
+      .xbootloader_addr(32'h00000000),
+      .xbootloader_read_rq(1'b0),
+      .xbootloader_read_ack(),      // unconnected
+      .xbootloader_din(),           // unconnected
+      .xbootloader_write_rq(1'b0),
+      .xbootloader_write_ack(),     // unconnected
+      .xbootloader_dout(8'h00),
+      // Misc
+      .vde(vde),                    // Video display enable (active area)
+      .ps2clk(1'b0), 
+      .ps2dat(1'b0),
+
+      .f1_pressed(),                // unconnected for now
+      .cursor_keys_pressed(),       // unconnected for now
+      .audio()                      // unconnected for now
   );
 
 `ifdef LCD_SUPPORT
@@ -148,15 +294,6 @@ SB_PLL40_PAD #(
 // out of phase (rising edge in middle of data eye) to maximize setup/hold
 // time margin.
 
-SB_IO #(
-  .PIN_TYPE(6'b01_0000)  // PIN_OUTPUT_DDR
-) dvi_clk_iob (
-  .PACKAGE_PIN (P1B2),
-  .D_OUT_0     (1'b0),
-  .D_OUT_1     (1'b1),
-  .OUTPUT_CLK  (pixel_clk)
-);
-
 wire [7:4] r, g, b;
 assign r[7:4] = red;
 assign g[7:4] = green;
@@ -167,14 +304,33 @@ wire vga_de = vde;
 
 
 SB_IO #(
-  .PIN_TYPE(6'b01_0100)  // PIN_OUTPUT_REGISTERED
-) dvi_data_iob [14:0] (
-  .PACKAGE_PIN ({P1A1,   P1A2,   P1A3,   P1A4,   P1A7,   P1A8,   P1A9,   P1A10,
-                 P1B1,           P1B3,   P1B4,   P1B7,   P1B8,   P1B9,   P1B10}),
-  .D_OUT_0     ({r[7],   r[5],   g[7],   g[5],   r[6],   r[4],   g[6],   g[4],
-                 b[7],           b[4],   vga_hs, b[6],   b[5],   vga_de, vga_vs}),
+  .PIN_TYPE(6'b01_0000)  // PIN_OUTPUT_DDR
+) dvi_clk_iob (
+  //.PACKAGE_PIN (P1B2),  // icebreaker
+  .PACKAGE_PIN (ICE_38),  // pico-ice2
+  .D_OUT_0     (1'b0),
+  .D_OUT_1     (1'b1),
   .OUTPUT_CLK  (pixel_clk)
 );
+
+SB_IO #(
+  .PIN_TYPE(6'b01_0100)  // PIN_OUTPUT_REGISTERED
+) dvi_data_iob [14:0] (
+  .PACKAGE_PIN ({
+    // pico-ice2
+    ICE_4,  ICE_3,  ICE_2, ICE_48, ICE_47, ICE_46, ICE_45, ICE_44, // R3,R2,R1,R0,G3,G2,G1,G0
+    ICE_43, ICE_42, ICE_36, ICE_34, ICE_32, ICE_31, ICE_28         // B3,B2,B1,B0,DE,HS,VS
+
+    // Icebreaker
+    // P1A1,   P1A2,   P1A3,   P1A4,   P1A7,   P1A8,   P1A9,   P1A10,
+    // P1B1,           P1B3,   P1B4,   P1B7,   P1B8,   P1B9,   P1B10
+    } ),
+  .D_OUT_0     ({r[7],   r[5],   g[7],   g[5],   r[6],   r[4],   g[6],   g[4],
+                 b[7],           b[4],   b[6],   b[5],  vga_de, vga_hs,   vga_vs}),
+  .OUTPUT_CLK  (pixel_clk)
+);
+
+assign ICE_21 = vga_de; // debug output
 
 endmodule
 

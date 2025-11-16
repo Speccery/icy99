@@ -253,6 +253,7 @@ end
 
   assign data_out = mode == 1'b0 && addr[7:6] == 2'b00 ? {mem_rd_bus,8'h00} : 
                     mode == 1'b1 && addr[7:6] == 2'b00 ? {active_stat_reg_rd,8'h00 } :
+`ifndef TMS9918_NO_EXTENDED_REGS_READ                    
                     addr == 8'h40 ? {reg0,8'h00} : 
                     addr == 8'h41 ? {reg1,8'h00} : 
                     addr == 8'h42 ? {2'b00,reg2[3:0],10'b0000000000} :  
@@ -280,6 +281,7 @@ end
                     addr == 8'h60 ? { reg16, 8'h00 } :
                     addr == 8'h61 ? { reg17, 8'h00 } :
                     addr == 8'h63 ? { reg19, 8'h00 } :
+`endif                   
                      0;
 
   //////////////////////////////////////////////////////////////////////////////////////////////
@@ -612,11 +614,16 @@ end
         end else begin
           pixel_out_4bit = 4'h0;
         end
-        palettized = palette_lookup[pixel_out_4bit];
-        vga_red <= palettized[7:5];
-        vga_green <= palettized[4:2];
-        vga_blue <= palettized[1:0];
+        // Pipeline the palette lookup to break critical timing path
+        // This adds one clock cycle of latency but doesn't affect display quality
+        palettized <= palette_lookup[pixel_out_4bit];
       end
+      
+      // Second pipeline stage: assign RGB outputs
+      // This breaks the critical path from pixel logic to output pins
+      vga_red <= palettized[7:5];
+      vga_green <= palettized[4:2];
+      vga_blue <= palettized[1:0];
       //----------------------------------------------------------
       // Main state machine.
       //
@@ -1128,8 +1135,85 @@ end
   assign xram_pipeline_reads = ram_pipeline_reads;
   assign ram_read_ack   = xram_read_ack;
   assign ram_write_ack  = xram_write_ack;
+`elsif USE_SPRAM_FOR_VRAM
+  // ========================================================================
+  // VRAM in iCE40UP5K SPRAM (Single Port RAM) - 32KB available
+  // Uses one SB_SPRAM256KA block. 
+  // Bus arbitration is needed since SPRAM is single-ported.
+  // ========================================================================
+  assign xram_data_out  = 0;
+  assign xram_addr      = 0;
+  assign xram_write_rq  = 0;
+  assign xram_read_rq   = 0;
+  assign xram_pipeline_reads = 0;
+  
+  // State machine for SPRAM access arbitration
+  reg [1:0] spram_state;
+  localparam SP_IDLE = 2'b00;
+  localparam SP_READ = 2'b01;
+  localparam SP_WRITE = 2'b10;
+  
+  reg [7:0] ram_read_buffer;
+  wire [7:0] spram_dout;
+  reg spram_we;
+  reg [14:0] spram_addr;
+  reg [7:0] spram_din;
+  
+  assign mem_data_in = ram_read_buffer;
+  assign ram_write_ack = (spram_state == SP_WRITE);
+  assign ram_read_ack = (spram_state == SP_READ);
+  
+  // SPRAM instance - 32KB (only using 16KB or 32KB depending on VDP mode)
+  SB_SPRAM256KA vram_spram(
+    .DATAOUT(spram_dout),
+    .ADDRESS(spram_addr[13:0]),      // 14-bit address = 16K words
+    .DATAIN({spram_din, spram_din}), // Duplicate data for both bytes
+    .MASKWREN({2'b11, 2'b11}),       // Write to both bytes (we only use lower byte)
+    .WREN(spram_we),
+    .CHIPSELECT(1'b1),
+    .CLOCK(clk),
+    .STANDBY(1'b0),
+    .SLEEP(1'b0),
+    .POWEROFF(1'b1)
+  );
+  
+  // SPRAM access state machine
+  always @(posedge clk) begin
+    case (spram_state)
+      SP_IDLE: begin
+        spram_we <= 1'b0;
+        if (ram_write_rq) begin
+          // Start write cycle
+          spram_addr <= vram_out_addr[14:0];
+          spram_din <= data_in;
+          spram_we <= 1'b1;
+          spram_state <= SP_WRITE;
+        end else if (ram_read_rq) begin
+          // Start read cycle
+          spram_addr <= vram_out_addr[14:0];
+          spram_state <= SP_READ;
+        end
+      end
+      
+      SP_WRITE: begin
+        // Write completes, return to idle
+        spram_we <= 1'b0;
+        spram_state <= SP_IDLE;
+      end
+      
+      SP_READ: begin
+        // Read data is available, latch it
+        ram_read_buffer <= spram_dout[7:0];  // Use lower byte only
+        spram_state <= SP_IDLE;
+      end
+      
+      default: begin
+        spram_state <= SP_IDLE;
+      end
+    endcase
+  end
 `else
-  // Internal block RAM used for VRAM.
+  // Internal block RAM used for VRAM (default for most platforms)
   assign xram_data_out  = 0;
   assign xram_addr      = 0;
   assign xram_write_rq  = 0;
@@ -1138,7 +1222,7 @@ end
   reg    [1:0] read_ack_delay = 2'b00;
   assign ram_read_ack = read_ack_delay[1];
   assign ram_write_ack  = 1;
-    reg [7:0] ram_read_buffer;
+  reg [7:0] ram_read_buffer;
   wire [7:0] ram_read_out;
   assign mem_data_in = ram_read_buffer;
 
