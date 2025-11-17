@@ -19,14 +19,17 @@ module spi_flash_rom(
     input wire [22:0] addr,             // 23-bit word address from sys.v
     input wire rom_sel,                 // ROM selected (0x0000-0x1FFF, 8KB)
     input wire grom_sel,                // GROM selected (custom address range)
-    output reg [15:0] data_out,         // 16-bit data output
-    output reg data_ready,              // Data valid (can be used as ready signal)
+    output reg [15:0] data_out = 16'h0000,  // 16-bit data output
+    output reg data_ready = 1'b0,           // Data valid (can be used as ready signal)
     
     // SPI Flash pins (connect to QSPI flash pins)
-    output reg flash_csn,               // Chip select (active low)
+    output reg flash_csn = 1'b1,            // Chip select (active low)
     output reg flash_clk,               // SPI clock
     output reg flash_mosi,              // Master out, slave in
-    input wire flash_miso               // Master in, slave out
+    input wire flash_miso,              // Master in, slave out
+    
+    // Debug output
+    output wire [3:0] debug_state       // Current state for debugging
 );
 
     // Flash memory offsets (must match Makefile layout)
@@ -53,6 +56,9 @@ module spi_flash_rom(
     reg [7:0] shift_reg;
     reg [7:0] data_hi, data_lo;
     reg [1:0] clk_div;
+    reg rom_sel_prev, grom_sel_prev;  // Track selection changes
+    
+    assign debug_state = state;  // Expose state for debugging
     
     // Generate slower SPI clock (divide by 4 for conservative timing)
     wire spi_tick = (clk_div == 2'b11);
@@ -70,15 +76,26 @@ module spi_flash_rom(
             flash_mosi <= 1'b0;
             data_ready <= 1'b0;
             data_out <= 16'h0000;
-        end else if (spi_tick) begin
+            rom_sel_prev <= 1'b0;
+            grom_sel_prev <= 1'b0;
+        end else begin
+            // Track selection changes - clear data_ready on new access
+            rom_sel_prev <= rom_sel;
+            grom_sel_prev <= grom_sel;
+            
+            // Clear data_ready when we see a new selection (rising edge)
+            if ((rom_sel && !rom_sel_prev) || (grom_sel && !grom_sel_prev)) begin
+                data_ready <= 1'b0;
+            end
+            
+            if (spi_tick) begin
             case (state)
                 ST_IDLE: begin
                     flash_csn <= 1'b1;
                     flash_clk <= 1'b0;
-                    data_ready <= 1'b0;
                     
-                    // Start read when ROM or GROM selected
-                    if (rom_sel || grom_sel) begin
+                    // Start read when ROM or GROM selected and not already done
+                    if ((rom_sel || grom_sel) && !data_ready) begin
                         // Calculate flash address based on selection
                         if (rom_sel) begin
                             // ROM: map word address to byte address with offset
@@ -88,10 +105,16 @@ module spi_flash_rom(
                             flash_addr <= FLASH_GROM_BASE + {addr[13:0], 1'b0};
                         end
                         
-                        flash_csn <= 1'b0;         // Assert CS
+                        data_ready <= 1'b0;         // Clear ready at start of transaction
+                        flash_csn <= 1'b0;          // Assert CS
                         shift_reg <= CMD_READ;      // Load read command
                         bit_count <= 4'd7;
                         state <= ST_CMD;
+                    end
+                    
+                    // Clear data_ready when selection is removed
+                    if (!rom_sel && !grom_sel) begin
+                        data_ready <= 1'b0;
                     end
                 end
                 
@@ -206,7 +229,8 @@ module spi_flash_rom(
                     state <= ST_IDLE;
                 end
             endcase
-        end
-    end
+            end  // if (spi_tick)
+        end  // else (not reset)
+    end  // always @(posedge clk)
 
 endmodule

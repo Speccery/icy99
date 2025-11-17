@@ -521,6 +521,7 @@ module top_ulx3s
   // a good case to test. Hence we pass the parameter zero.
   sys #(0,1) ti994a (
   	.clk(clk), 
+  	.pixel_clk(clk), // ULX3S uses single clock for both system and pixel domains
   	.LED(sys_LED), 
     .tms9902_tx(tms9902_tx),
     .tms9902_rx(tms9902_rx),

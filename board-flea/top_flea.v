@@ -356,6 +356,7 @@ module fleatop
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   sys #(0,0) ti994a(
     .clk(clk), 
+    .pixel_clk(clk), // Flea uses single clock for both system and pixel domains
     .LED(LED), 
     .tms9902_tx(tms9902_tx), 
     .tms9902_rx(tms9902_rx),

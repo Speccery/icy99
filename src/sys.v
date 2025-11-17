@@ -12,9 +12,11 @@
 
 module sys
 #(parameter mem_supports_byte_writes=1,
-  parameter external_bl32=0) 
+  parameter external_bl32=0,
+  parameter uart_divider=174)  // UART divider for 230400 baud (default 174 for 40MHz)
 (
-    input clk, 
+    input clk,          // System clock for CPU and logic
+    input pixel_clk,    // Pixel clock for VDP (can be same as clk or faster)
     output [3:0] LED, 
     input   tms9902_tx, 
     output  tms9902_rx, 
@@ -354,7 +356,7 @@ wire vdp_write_rq, vdp_write_ack;
 wire vdp_pipeline_reads;
 
 tms9918 vdp(
-	.clk(clk),
+	.clk(pixel_clk),    // VDP uses pixel clock for video pipeline
 	.reset(cpu_reset),  // used to be reset, now cpu_reset -> interrupts will be disabled
 	.mode(ab[1]),
 	.addr(ab[8:1]),
@@ -692,7 +694,7 @@ tms9918 vdp(
 
   wire serloader_reset = reset; //  | ~B2; // Serloader is reset with reset and when B2 is pressed
 
-  serloader bootloader(
+  serloader #(.UART_DIVIDER(uart_divider)) bootloader(
     .clk(clk), .rst(reset), .tx(serloader_tx), .rx(serloader_rx),
     .spi_cs_n(1'b1), .spi_clk(1'b1), .spi_mosi(1'b1), .spi_miso(spi_miso),  // not used right now
     .spi_rq(spi_rq),

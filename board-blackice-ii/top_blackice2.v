@@ -73,6 +73,7 @@ module top_blackice2(
   assign ADR = sys_addr[17:0];
   sys ti994a(
       .clk(clk), 
+      .pixel_clk(clk), // BlackIce-II uses single clock for both system and pixel domains
       .LED(LED), 
       .tms9902_tx(tms9902_tx), 
       .tms9902_rx(tms9902_rx),

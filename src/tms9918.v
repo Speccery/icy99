@@ -472,6 +472,7 @@ end
       reg19 <= 8'h00;
       reg49 <= 8'h00;
       mode9938 <= 1'b0;
+      reg7 <= 8'h03;  // debug: init the border color to something visible 
     end else begin
       // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
       // // It is high once per 4 clock cycles.

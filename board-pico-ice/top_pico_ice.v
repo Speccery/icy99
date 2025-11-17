@@ -29,7 +29,8 @@ module top_pico_ice(
   input  UART_RX, // UART_RX connected to RP2040 GPIO1 (pin 3)
   output UART_TX, // UART_TX connected to RP2040 GPIO0 (pin 2)
 
-  output ICE_21 // debug output, easier to attach a probe than the outer pins
+  output ICE_21, // debug output, easier to attach a probe than the outer pins
+  output ICE_20  // debug output, easier to attach a probe than the outer pins
   );
 
   wire pixel_clk;
@@ -38,8 +39,12 @@ module top_pico_ice(
 
 
 //-----------------------------------------------------------------------------
-// PLL.
+// PLL - Generate 40 MHz pixel clock and 10 MHz system clock
+// pixel_clk: 40 MHz for VDP pixel pipeline and DVI output
+// sys_clk: 10 MHz for CPU, memory controller, and all other logic
 //-----------------------------------------------------------------------------
+wire sys_clk;  // 10 MHz system clock for CPU and logic
+
 SB_PLL40_PAD #(
   .DIVR(4'b0000),
   // 40MHz ish to be exact it is 39.750MHz
@@ -69,6 +74,13 @@ SB_PLL40_PAD #(
   //.SCLK()
 );
 
+// Generate 10 MHz system clock from 40 MHz pixel clock
+reg [1:0] clk_div;
+always @(posedge pixel_clk) begin
+  clk_div <= clk_div + 1;
+end
+assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
+
   // VGA
   wire [3:0] red, green, blue;
   wire hsync, vsync;
@@ -80,7 +92,7 @@ SB_PLL40_PAD #(
 
   wire vde;
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
-  wire [22:0] sys_addr;
+  wire [22:0] sys_addr;  // Address bus from sys.v (word address)
   
   // ========================================================================
   // Memory subsystem for pico-ice
@@ -89,28 +101,36 @@ SB_PLL40_PAD #(
   // - ROM/GROM: TBD (SPI flash or remaining SPRAM blocks)
   // ========================================================================
   
-  // Reset signal
+  // Reset signal - use sys_clk for proper startup
   wire reset;
   reg [7:0] reset_counter = 8'h00;
   assign reset = (reset_counter != 8'hFF);
-  always @(posedge pixel_clk) begin
+  always @(posedge sys_clk) begin
     if (reset_counter != 8'hFF)
       reset_counter <= reset_counter + 8'd1;
   end
 
   // Scratchpad RAM - 1KB at 0x8000-0x83FF using block RAM (EBR)
   // TI-99/4A originally has 256 bytes at 0x8300, we provide full 1KB at 0x8000-0x83FF
-  wire pad_sel = (sys_addr[22:10] == 13'b0000_0000_1000_0); // 0x8000-0x83FF
+  // sys_addr is a WORD address from sys.v, covering 16MB address space
+  wire pad_sel = (sys_addr[22:10] == 13'b0000_0000_1000_0); // 0x8000-0x83FF (byte addresses)
   wire [15:0] pad_data_out;
-  reg [15:0] scratchpad [0:511];  // 512 words x 16 bits = 1KB
+  reg [7:0] scratchpad_lo [0:511];  // 512 bytes low
+  reg [7:0] scratchpad_hi [0:511];  // 512 bytes high
   reg [15:0] pad_data_reg;
   
-  always @(posedge pixel_clk) begin
+  wire pad_we_lo = pad_sel && !RAMLB && !RAMWE;  // Lower byte write enable
+  wire pad_we_hi = pad_sel && !RAMUB && !RAMWE;  // Upper byte write enable
+  
+  always @(posedge sys_clk) begin
+    if (pad_we_lo) begin
+      scratchpad_lo[sys_addr[8:0]] <= sram_pins_dout[7:0];
+    end
+    if (pad_we_hi) begin
+      scratchpad_hi[sys_addr[8:0]] <= sram_pins_dout[15:8];
+    end
     if (pad_sel) begin
-      if (!RAMWE) begin  // RAMWE is active low
-        scratchpad[sys_addr[9:1]] <= sram_pins_dout;
-      end
-      pad_data_reg <= scratchpad[sys_addr[9:1]];
+      pad_data_reg <= {scratchpad_hi[sys_addr[8:0]], scratchpad_lo[sys_addr[8:0]]};
     end
   end
   
@@ -122,29 +142,56 @@ SB_PLL40_PAD #(
   // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module
   // ========================================================================
   
-  // ROM selection: sys.v address 0x00000-0x00FFF (word addresses)
+  // ROM selection: 8KB at word addresses 0x00000-0x00FFF
   wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000);  // 8K @ 0x00000
-  // GROM selection: sys.v maps GROM to address 0x10000-0x17FFF (word addresses)
+  // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF
   wire grom_sel = (sys_addr[22:15] == 8'b0000_0001);      // 64K @ 0x10000
   
   wire [15:0] flash_rom_data;
   wire flash_rom_ready;
+  wire [3:0] flash_debug_state;
   
-  /*
-  // Temporarily stub out flash ROM to test if design fits without it
-  assign flash_rom_data = 16'h0000;
-  assign flash_rom_ready = 1'b1;
-  assign flash_mosi_out = 1'b0;
-  assign ICE_15 = 1'b0;  // flash_clk
-  assign ICE_16 = 1'b1;  // flash_csn (inactive high)
-  */
+  // Memory busy logic for SPI flash ROM access (similar to ULX3S SDRAM)
+  // The CPU needs to wait while SPI flash read is in progress
+  wire flash_rom_rd = (rom_sel || grom_sel) && !RAMOE;
+  wire use_memory_busy = flash_rom_rd;
+  
+  reg [7:0] busy_count = 8'h00;
+  wire memory_busy = (|busy_count);
+  
+  assign ICE_20 = flash_debug_state[0];  // debug output - flash state bit 0
+  assign ICE_21 = flash_rom_ready;  // debug output - should go high when data ready
+
+  // Generate wait states for SPI flash access
+  // Need to latch the request and wait for flash_rom_ready to go high
+  reg flash_access_pending;
+  reg flash_rom_ready_prev;
+  
+  always @(posedge sys_clk) begin
+    flash_rom_ready_prev <= flash_rom_ready;
+    
+    // Start a flash access when flash_rom_rd goes high and we're not already busy
+    if (flash_rom_rd && !flash_access_pending) begin
+      flash_access_pending <= 1'b1;
+      busy_count <= 8'd200;  // Maximum wait time
+    end
+    // Keep waiting until flash responds (rising edge) or timeout
+    else if (flash_access_pending) begin
+      if ((flash_rom_ready && !flash_rom_ready_prev) || busy_count == 0) begin
+        flash_access_pending <= 1'b0;
+        busy_count <= 0;
+      end else begin
+        busy_count <= busy_count - 8'd1;
+      end
+    end
+  end
 
   spi_flash_rom flash_rom(
-    .clk(pixel_clk),
+    .clk(sys_clk),          // Use 10 MHz system clock
     .reset(reset),
     
     // SRAM-style interface
-    .addr(sys_addr),
+    .addr(sys_addr),        // Word address from sys.v
     .rom_sel(rom_sel),
     .grom_sel(grom_sel),
     .data_out(flash_rom_data),
@@ -154,7 +201,10 @@ SB_PLL40_PAD #(
     .flash_csn(ICE_16),     // FLASH_CSN
     .flash_clk(ICE_15),     // FLASH_CLK  
     .flash_mosi(flash_mosi_out),  // FLASH_IO0 (bidirectional, need tristate)
-    .flash_miso(flash_miso_in)    // FLASH_IO1 (bidirectional, need tristate)
+    .flash_miso(flash_miso_in),   // FLASH_IO1 (bidirectional, need tristate)
+    
+    // Debug
+    .debug_state(flash_debug_state)
   );
   
   // Handle bidirectional QSPI pins with tristate buffers
@@ -210,7 +260,6 @@ SB_PLL40_PAD #(
   wire [15:0] sram_pins_dout;
   wire sram_pins_drive;  // Output from sys - unused on pico-ice (no external SRAM)
   wire RAMOE, RAMWE, RAMCS, RAMLB, RAMUB;
-  wire [22:0] ADR;
   
   // Data multiplexer: return data based on what's selected
   assign sram_pins_din = pad_sel ? pad_data_out :
@@ -220,8 +269,9 @@ SB_PLL40_PAD #(
   // Ensure PSRAM chip select stays high (we're not using PSRAM yet)
   assign ICE_37 = 1'b1;  // SRAM_SS - PSRAM chip select (active low, keep high)
 
-  sys ti994a(
-      .clk(pixel_clk), 
+  sys #(.uart_divider(43)) ti994a(  // 10 MHz / 230400 baud = 43
+      .clk(sys_clk),      // Use 10 MHz system clock for CPU and logic  
+      .pixel_clk(pixel_clk), // Use 40 MHz pixel clock for VDP
       .LED(LED_R), 
 
       .tms9902_tx(1'b1), // these are reversed in sys.v module
@@ -232,12 +282,12 @@ SB_PLL40_PAD #(
       .RAMCS(RAMCS), 
       .RAMLB(RAMLB), 
       .RAMUB(RAMUB),
-      .ADR(sys_addr), 
+      .ADR(sys_addr),         // Word address output from sys
       .sram_pins_din(sram_pins_din), 
       .sram_pins_dout(sram_pins_dout),
       .sram_pins_drive(sram_pins_drive),
-      .memory_busy(1'b0),
-      .use_memory_busy(1'b0),
+      .memory_busy(memory_busy),        // Signal CPU to wait during SPI flash read
+      .use_memory_busy(use_memory_busy), // Enable wait state generation
       .red(red), 
       .green(green), 
       .blue(blue), 
@@ -330,7 +380,6 @@ SB_IO #(
   .OUTPUT_CLK  (pixel_clk)
 );
 
-assign ICE_21 = vga_de; // debug output
 
 endmodule
 
