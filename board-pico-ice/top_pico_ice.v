@@ -17,12 +17,16 @@ module top_pico_ice(
   output ICE_44, ICE_45, ICE_46, ICE_47, ICE_48, ICE_2, ICE_3, ICE_4,
 
   // QSPI Flash pins. Apart for ICE_16 (CSN) these are shared with the PSRAM chip.
-  output ICE_16, // FLASH_CSN
-  output ICE_15, // FLASH_CLK
-  inout  ICE_14, // ICE_SO, FLASH_IO0
-  inout  ICE_17, // ICE_SI, FLASH_IO1
-  inout  ICE_12, // FLASH_IO2
-  inout  ICE_13, // FLASH_IO3
+  // Pin assignments from schematic:
+  // ICE_SSN (CS) = pin 16, ICE_SCK (CLK) = pin 15
+  // ICE_SO (MISO, flash→FPGA) = pin 14, ICE_SI (MOSI, FPGA→flash) = pin 17
+  // ICE_FLASH_IO2 = pin 12, ICE_FLASH_IO3 = pin 13
+  output ICE_16, // ICE_SSN - Flash chip select (active low)
+  output ICE_15, // ICE_SCK - Flash SPI clock
+  inout  ICE_14, // ICE_SO - Flash DI (FPGA to flash)
+  inout  ICE_17, // ICE_SI - Flash DO (flash to FPGA)
+  inout  ICE_12, // ICE_FLASH_IO2 - /WP (write protect)
+  inout  ICE_13, // ICE_FLASH_IO3 - /HOLD
   output ICE_37, // SRAM_SS - PSRAM chip select
 
   // UART connections, newest default firmware, second USB serial port is connected to an UART
@@ -30,7 +34,9 @@ module top_pico_ice(
   output UART_TX, // UART_TX connected to RP2040 GPIO0 (pin 2)
 
   output ICE_21, // debug output, easier to attach a probe than the outer pins
-  output ICE_20  // debug output, easier to attach a probe than the outer pins
+  output ICE_20,  // debug output, easier to attach a probe than the outer pins
+  output ICE_26
+
   );
 
   wire pixel_clk;
@@ -142,10 +148,10 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module
   // ========================================================================
   
-  // ROM selection: 8KB at word addresses 0x00000-0x00FFF
-  wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000);  // 8K @ 0x00000
-  // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF
-  wire grom_sel = (sys_addr[22:15] == 8'b0000_0001);      // 64K @ 0x10000
+  // ROM selection: 8KB at word addresses 0x00000-0x00FFF, gated by RAMOE
+  wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000) && !RAMOE;  // 8K @ 0x00000
+  // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF, gated by RAMOE
+  wire grom_sel = (sys_addr[22:15] == 8'b0000_0001) && !RAMOE;      // 64K @ 0x10000
   
   wire [15:0] flash_rom_data;
   wire flash_rom_ready;
@@ -159,33 +165,50 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   reg [7:0] busy_count = 8'h00;
   wire memory_busy = (|busy_count);
   
-  assign ICE_20 = flash_debug_state[0];  // debug output - flash state bit 0
-  assign ICE_21 = flash_rom_ready;  // debug output - should go high when data ready
+  // Debug outputs - monitor SPI signals
+  assign ICE_20 = ICE_16;  // Monitor flash CS (should pulse low during reads)
+  assign ICE_21 = memory_busy;  // Monitor flash CLK (should toggle during transactions)
+  assign ICE_26 = flash_miso_in;  // Monitor flash MISO (data from flash)
+  //assign ICE_19 = flash_mosi_out;  // Monitor flash MOSI (data to flash) - PIN 19 does not seem to work well
 
   // Generate wait states for SPI flash access
   // Need to latch the request and wait for flash_rom_ready to go high
   reg flash_access_pending;
   reg flash_rom_ready_prev;
-  
+  reg flash_access_done;
+
   always @(posedge sys_clk) begin
     flash_rom_ready_prev <= flash_rom_ready;
-    
-    // Start a flash access when flash_rom_rd goes high and we're not already busy
-    if (flash_rom_rd && !flash_access_pending) begin
-      flash_access_pending <= 1'b1;
-      busy_count <= 8'd200;  // Maximum wait time
-    end
-    // Keep waiting until flash responds (rising edge) or timeout
-    else if (flash_access_pending) begin
-      if ((flash_rom_ready && !flash_rom_ready_prev) || busy_count == 0) begin
-        flash_access_pending <= 1'b0;
-        busy_count <= 0;
-      end else begin
-        busy_count <= busy_count - 8'd1;
+
+    // One-cycle delay after transaction completes
+    if (flash_access_done) begin
+      flash_access_done <= 1'b0;
+    end else begin
+      // Start a flash access only if not busy, not in post-access delay, and memory_busy is low
+      if (flash_rom_rd && !flash_access_pending && !memory_busy) begin
+        flash_access_pending <= 1'b1;
+        busy_count <= 8'd200;  // Maximum wait time
+      end
+      // Keep waiting until flash responds (rising edge) or timeout
+      else if (flash_access_pending) begin
+        if ((flash_rom_ready && !flash_rom_ready_prev) || busy_count == 0) begin
+          flash_access_pending <= 1'b0;
+          busy_count <= 0;
+          flash_access_done <= 1'b1; // Insert one-cycle delay before next access
+        end else begin
+          busy_count <= busy_count - 8'd1;
+        end
       end
     end
+
   end
 
+  // Handle bidirectional QSPI pins with tristate buffers
+  // Flash chip perspective: pin 2=DO (output), pin 5=DI (input)
+  // ICE_SI (pin 17) = Flash DO = MISO (flash to FPGA)
+  // ICE_SO (pin 14) = Flash DI = MOSI (FPGA to flash)
+  wire flash_mosi_out, flash_miso_in;
+  
   spi_flash_rom flash_rom(
     .clk(sys_clk),          // Use 10 MHz system clock
     .reset(reset),
@@ -198,35 +221,33 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
     .data_ready(flash_rom_ready),
     
     // SPI Flash pins - connect to QSPI flash (shared with PSRAM)
-    .flash_csn(ICE_16),     // FLASH_CSN
-    .flash_clk(ICE_15),     // FLASH_CLK  
-    .flash_mosi(flash_mosi_out),  // FLASH_IO0 (bidirectional, need tristate)
-    .flash_miso(flash_miso_in),   // FLASH_IO1 (bidirectional, need tristate)
+    .flash_csn(ICE_16),           // ICE_SSN - Flash CS
+    .flash_clk(ICE_15),           // ICE_SCK - Flash CLK  
+    .flash_mosi(flash_mosi_out),  // ICE_SO - MOSI (FPGA to flash)
+    .flash_miso(flash_miso_in),   // ICE_SI - MISO (flash to FPGA)
     
     // Debug
     .debug_state(flash_debug_state)
   );
   
-  // Handle bidirectional QSPI pins with tristate buffers
-  // For simple SPI read, we only need IO0 (MOSI) and IO1 (MISO)
-  wire flash_mosi_out, flash_miso_in;
+
   
-  // ICE_14 is FLASH_IO0 (MOSI - output only during SPI operations)
+  // ICE_14 is ICE_SO = Flash DI (MOSI - FPGA to flash, always output)
   SB_IO #(
     .PIN_TYPE(6'b1010_01),  // PIN_OUTPUT_TRISTATE + PIN_INPUT
     .PULLUP(1'b0)
-  ) flash_io0_buf (
+  ) flash_mosi_buf (
     .PACKAGE_PIN(ICE_14),
-    .OUTPUT_ENABLE(~ICE_16),  // Drive when CS is low
+    .OUTPUT_ENABLE(1'b1),     // Always drive MOSI (SPI master)
     .D_OUT_0(flash_mosi_out),
     .D_IN_0()  // Not used for MOSI
   );
   
-  // ICE_17 is FLASH_IO1 (MISO - input during SPI operations)
+  // ICE_17 is ICE_SI = Flash DO (MISO - flash to FPGA, always input)
   SB_IO #(
     .PIN_TYPE(6'b1010_01),  // PIN_OUTPUT_TRISTATE + PIN_INPUT
     .PULLUP(1'b1)           // Pullup when not driven
-  ) flash_io1_buf (
+  ) flash_miso_buf (
     .PACKAGE_PIN(ICE_17),
     .OUTPUT_ENABLE(1'b0),     // Always input for MISO
     .D_OUT_0(1'b0),
@@ -234,24 +255,26 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   );
   
   // ICE_12 and ICE_13 are FLASH_IO2 and FLASH_IO3 (not used in standard SPI mode)
-  // Leave them as high-Z with pullups
+  // IO2 is /WP (write protect) - drive high to disable write protection
+  // IO3 is /HOLD - drive high to prevent hold state
+  // Note: Both have 10k pulldowns on board, so we must actively drive them high
   SB_IO #(
     .PIN_TYPE(6'b1010_01),
-    .PULLUP(1'b1)
+    .PULLUP(1'b0)
   ) flash_io2_buf (
     .PACKAGE_PIN(ICE_12),
-    .OUTPUT_ENABLE(1'b0),
-    .D_OUT_0(1'b0),
+    .OUTPUT_ENABLE(1'b1),     // Enable output
+    .D_OUT_0(1'b1),           // Drive high to disable /WP
     .D_IN_0()
   );
   
   SB_IO #(
     .PIN_TYPE(6'b1010_01),
-    .PULLUP(1'b1)
+    .PULLUP(1'b0)
   ) flash_io3_buf (
     .PACKAGE_PIN(ICE_13),
-    .OUTPUT_ENABLE(1'b0),
-    .D_OUT_0(1'b0),
+    .OUTPUT_ENABLE(1'b1),     // Enable output
+    .D_OUT_0(1'b1),           // Drive high to disable /HOLD
     .D_IN_0()
   );
   

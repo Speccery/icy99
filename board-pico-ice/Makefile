@@ -80,7 +80,9 @@ $(BUILD_DIR)/$(PROJ)_out.asc: $(BUILD_DIR)/$(PROJ).json pico_ice.pcf
 $(BITSTREAM): $(BUILD_DIR)/$(PROJ)_out.asc
 	@echo "Generating bitstream with icepack..."
 	rm -f $@
-	$(YOSYSPATH)/icepack $< $@
+	# -s flag below keeps the SPI Flash chip powered on after programming. Without the chip
+	# has to be woken up with "0xAB – Release from Deep Power-Down".
+	$(YOSYSPATH)/icepack -s $< $@
 
 # ROM/GROM files
 ROM_FILE = ../roms/994aROM.Bin

@@ -502,7 +502,8 @@ tms9918 vdp(
         end
 `endif        
       // Reset control readback, cpu history registers
-      13'b0_0000_0000_100?: bootloader_readback_reg <= cpu_reset_ctrl;
+      13'b0_0000_0000_1000: bootloader_readback_reg <= cpu_reset_ctrl;
+      13'b0_0000_0000_1001: bootloader_readback_reg <= { 7'h00, stuck };
 `ifdef CPU_IR_READBACK      
       13'b0_0000_0000_1010: bootloader_readback_reg <= cpu_ir[15:8];
       13'b0_0000_0000_1011: bootloader_readback_reg <= cpu_ir[7:0];

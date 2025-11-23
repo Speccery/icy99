@@ -10,6 +10,14 @@
 // 0x040000 - 0x041FFF (8KB):   Console ROM
 // 0x042000 - 0x047FFF (24KB):  Console GROM  
 // 0x048000 - 0x04FFFF (32KB):  Reserved for cartridge ROM
+//
+// Clock strategy:
+// - SPI clock (flash_clk) is driven directly by input clk when enabled
+// - Two-phase operation per bit: phase 0 = setup data, phase 1 = sample data
+// - Each state explicitly manages spi_phase transitions to ensure proper timing
+// - Phase 0: MOSI data presented (clock low), Phase 1: MISO sampled (clock high)
+// - This allows easy upgrade to higher speed (40 MHz pixel_clk for QSPI)
+// - Standard SPI read command (0x03) at 10 MHz, upgradeable to QSPI later
 
 module spi_flash_rom(
     input wire clk,
@@ -24,7 +32,7 @@ module spi_flash_rom(
     
     // SPI Flash pins (connect to QSPI flash pins)
     output reg flash_csn = 1'b1,            // Chip select (active low)
-    output reg flash_clk,               // SPI clock
+    output wire flash_clk,              // SPI clock (gated 5MHz, only during active transaction)
     output reg flash_mosi,              // Master out, slave in
     input wire flash_miso,              // Master in, slave out
     
@@ -33,11 +41,13 @@ module spi_flash_rom(
 );
 
     // Flash memory offsets (must match Makefile layout)
-    localparam FLASH_ROM_BASE  = 24'h040000;  // 256KB offset for ROM
-    localparam FLASH_GROM_BASE = 24'h042000;  // 256KB + 8KB offset for GROM
+    // DEBUG: Temporarily reading from start of flash (FPGA bitstream) to verify SPI works
+    localparam FLASH_ROM_BASE  = 24'h040000;  // 256KB offset for ROM (was 0x040000)
+    localparam FLASH_GROM_BASE = 24'h042000;  // 256KB + 8KB offset for GROM (was 0x042000)
     
-    // SPI Flash command
+    // SPI Flash commands
     localparam CMD_READ = 8'h03;              // Standard SPI read command
+    localparam CMD_RDID = 8'h9F;              // Read ID command (for testing)
     
     // State machine states
     localparam [3:0]
@@ -55,16 +65,30 @@ module spi_flash_rom(
     reg [23:0] flash_addr;
     reg [7:0] shift_reg;
     reg [7:0] data_hi, data_lo;
-    reg [1:0] clk_div;
     reg rom_sel_prev, grom_sel_prev;  // Track selection changes
-    
-    assign debug_state = state;  // Expose state for debugging
-    
-    // Generate slower SPI clock (divide by 4 for conservative timing)
-    wire spi_tick = (clk_div == 2'b11);
-    
+
+    reg spi_phase;  // 0 = setup data, 1 = sample (for rising edge sampling)
+    reg flash_clk_en;  // Enable for SPI clock
+    reg flash_miso_sampled;  // Sample MISO on negative edge for better timing
+
+    // 5MHz clock divider (from 10MHz system clock)
+    reg clk_div;
     always @(posedge clk) begin
-        clk_div <= clk_div + 1'b1;
+        if (reset || !flash_clk_en) begin
+            clk_div <= 1'b0;
+        end else begin
+            clk_div <= ~clk_div;
+        end
+    end
+
+    // SPI clock: 5MHz only when enabled, otherwise low
+    assign flash_clk = (flash_clk_en) ? clk_div : 1'b0;
+
+    assign debug_state = state;  // Expose state for debugging
+
+    // Sample MISO on negative edge of system clock for better timing margin
+    always @(negedge clk) begin
+        flash_miso_sampled <= flash_miso;
     end
     
     // Main SPI state machine
@@ -72,12 +96,13 @@ module spi_flash_rom(
         if (reset) begin
             state <= ST_IDLE;
             flash_csn <= 1'b1;
-            flash_clk <= 1'b0;
+            flash_clk_en <= 1'b0;
             flash_mosi <= 1'b0;
             data_ready <= 1'b0;
             data_out <= 16'h0000;
             rom_sel_prev <= 1'b0;
             grom_sel_prev <= 1'b0;
+            spi_phase <= 1'b0;
         end else begin
             // Track selection changes - clear data_ready on new access
             rom_sel_prev <= rom_sel;
@@ -88,14 +113,20 @@ module spi_flash_rom(
                 data_ready <= 1'b0;
             end
             
-            if (spi_tick) begin
             case (state)
                 ST_IDLE: begin
                     flash_csn <= 1'b1;
-                    flash_clk <= 1'b0;
+                    flash_clk_en <= 1'b0;
+                    spi_phase <= 1'b0;
                     
-                    // Start read when ROM or GROM selected and not already done
-                    if ((rom_sel || grom_sel) && !data_ready) begin
+                    // Clear data_ready when selection is removed
+                    if (!rom_sel && !grom_sel) begin
+                        data_ready <= 1'b0;
+                    end
+                    
+                    // Start read when ROM or GROM selected
+                    // Always start a new transaction when selected, even if data_ready is high
+                    if ((rom_sel || grom_sel)) begin
                         // Calculate flash address based on selection
                         if (rom_sel) begin
                             // ROM: map word address to byte address with offset
@@ -107,24 +138,24 @@ module spi_flash_rom(
                         
                         data_ready <= 1'b0;         // Clear ready at start of transaction
                         flash_csn <= 1'b0;          // Assert CS
+                        flash_clk_en <= 1'b1;       // Enable SPI clock
                         shift_reg <= CMD_READ;      // Load read command
                         bit_count <= 4'd7;
                         state <= ST_CMD;
-                    end
-                    
-                    // Clear data_ready when selection is removed
-                    if (!rom_sel && !grom_sel) begin
-                        data_ready <= 1'b0;
+                        // spi_phase will be 0 on next clock (first phase = setup)
                     end
                 end
                 
                 // Send READ command (0x03)
                 ST_CMD: begin
-                    flash_mosi <= shift_reg[7];
-                    flash_clk <= ~flash_clk;
-                    
-                    if (flash_clk) begin  // On falling edge of flash_clk
+                    if (spi_phase == 1'b0) begin
+                        // Setup phase: present data on MOSI
+                        flash_mosi <= shift_reg[7];
+                        spi_phase <= 1'b1;  // Next clock will be sample phase
+                    end else begin
+                        // Sample phase: shift and advance
                         shift_reg <= {shift_reg[6:0], 1'b0};
+                        spi_phase <= 1'b0;  // Next clock will be setup phase
                         if (bit_count == 4'd0) begin
                             shift_reg <= flash_addr[23:16];
                             bit_count <= 4'd7;
@@ -137,11 +168,12 @@ module spi_flash_rom(
                 
                 // Send address byte 2 (MSB)
                 ST_ADDR2: begin
-                    flash_mosi <= shift_reg[7];
-                    flash_clk <= ~flash_clk;
-                    
-                    if (flash_clk) begin
+                    if (spi_phase == 1'b0) begin
+                        flash_mosi <= shift_reg[7];
+                        spi_phase <= 1'b1;
+                    end else begin
                         shift_reg <= {shift_reg[6:0], 1'b0};
+                        spi_phase <= 1'b0;
                         if (bit_count == 4'd0) begin
                             shift_reg <= flash_addr[15:8];
                             bit_count <= 4'd7;
@@ -154,11 +186,12 @@ module spi_flash_rom(
                 
                 // Send address byte 1
                 ST_ADDR1: begin
-                    flash_mosi <= shift_reg[7];
-                    flash_clk <= ~flash_clk;
-                    
-                    if (flash_clk) begin
+                    if (spi_phase == 1'b0) begin
+                        flash_mosi <= shift_reg[7];
+                        spi_phase <= 1'b1;
+                    end else begin
                         shift_reg <= {shift_reg[6:0], 1'b0};
+                        spi_phase <= 1'b0;
                         if (bit_count == 4'd0) begin
                             shift_reg <= flash_addr[7:0];
                             bit_count <= 4'd7;
@@ -171,11 +204,12 @@ module spi_flash_rom(
                 
                 // Send address byte 0 (LSB)
                 ST_ADDR0: begin
-                    flash_mosi <= shift_reg[7];
-                    flash_clk <= ~flash_clk;
-                    
-                    if (flash_clk) begin
+                    if (spi_phase == 1'b0) begin
+                        flash_mosi <= shift_reg[7];
+                        spi_phase <= 1'b1;
+                    end else begin
                         shift_reg <= {shift_reg[6:0], 1'b0};
+                        spi_phase <= 1'b0;
                         if (bit_count == 4'd0) begin
                             bit_count <= 4'd7;
                             shift_reg <= 8'h00;
@@ -188,12 +222,15 @@ module spi_flash_rom(
                 
                 // Read high byte of 16-bit word
                 ST_READ_HI: begin
-                    flash_clk <= ~flash_clk;
-                    
-                    if (~flash_clk) begin  // Sample on rising edge
-                        shift_reg <= {shift_reg[6:0], flash_miso};
+                    if (spi_phase == 1'b0) begin
+                        // Setup phase: just wait (MOSI doesn't matter during read)
+                        spi_phase <= 1'b1;
+                    end else begin
+                        // Sample phase: capture data (sampled on negedge, available now)
+                        shift_reg <= {shift_reg[6:0], flash_miso_sampled};
+                        spi_phase <= 1'b0;
                         if (bit_count == 4'd0) begin
-                            data_hi <= {shift_reg[6:0], flash_miso};
+                            data_hi <= {shift_reg[6:0], flash_miso_sampled};
                             bit_count <= 4'd7;
                             state <= ST_READ_LO;
                         end else begin
@@ -204,12 +241,15 @@ module spi_flash_rom(
                 
                 // Read low byte of 16-bit word
                 ST_READ_LO: begin
-                    flash_clk <= ~flash_clk;
-                    
-                    if (~flash_clk) begin  // Sample on rising edge
-                        shift_reg <= {shift_reg[6:0], flash_miso};
+                    if (spi_phase == 1'b0) begin
+                        // Setup phase: just wait
+                        spi_phase <= 1'b1;
+                    end else begin
+                        // Sample phase: capture data (sampled on negedge, available now)
+                        shift_reg <= {shift_reg[6:0], flash_miso_sampled};
+                        spi_phase <= 1'b0;
                         if (bit_count == 4'd0) begin
-                            data_lo <= {shift_reg[6:0], flash_miso};
+                            data_lo <= {shift_reg[6:0], flash_miso_sampled};
                             state <= ST_DONE;
                         end else begin
                             bit_count <= bit_count - 1'b1;
@@ -219,8 +259,9 @@ module spi_flash_rom(
                 
                 ST_DONE: begin
                     flash_csn <= 1'b1;          // Deassert CS
-                    flash_clk <= 1'b0;
-                    data_out <= {data_hi, data_lo};  // Output 16-bit word
+                    flash_clk_en <= 1'b0;       // Disable SPI clock
+                    spi_phase <= 1'b0;          // Reset phase
+                    data_out <= {data_hi, data_lo};  // Output 16-bit word from flash
                     data_ready <= 1'b1;
                     state <= ST_IDLE;
                 end
@@ -229,7 +270,6 @@ module spi_flash_rom(
                     state <= ST_IDLE;
                 end
             endcase
-            end  // if (spi_tick)
         end  // else (not reset)
     end  // always @(posedge clk)
 
