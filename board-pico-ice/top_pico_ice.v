@@ -99,6 +99,7 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   wire vde;
   wire pin_cs, pin_sdin, pin_sclk, pin_d_cn, pin_resn, pin_vccen, pin_pmoden;
   wire [22:0] sys_addr;  // Address bus from sys.v (word address)
+  wire addr_strobe;
   
   // ========================================================================
   // Memory subsystem for pico-ice
@@ -148,10 +149,10 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module
   // ========================================================================
   
-  // ROM selection: 8KB at word addresses 0x00000-0x00FFF, gated by RAMOE
-  wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000) && !RAMOE;  // 8K @ 0x00000
-  // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF, gated by RAMOE
-  wire grom_sel = (sys_addr[22:15] == 8'b0000_0001) && !RAMOE;      // 64K @ 0x10000
+  // ROM selection: 8KB at word addresses 0x00000-0x00FFF
+  wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000);  // 8K @ 0x00000
+  // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF
+  wire grom_sel = (sys_addr[22:15] == 8'b0000_0001);      // 64K @ 0x10000
   
   wire [15:0] flash_rom_data;
   wire flash_rom_ready;
@@ -160,42 +161,42 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   
   // Memory busy logic for SPI flash ROM access (similar to ULX3S SDRAM)
   // The CPU needs to wait while SPI flash read is in progress
-  wire flash_rom_rd = (rom_sel || grom_sel) && !RAMOE;
+  wire flash_rom_rd = (rom_sel || grom_sel);
   wire use_memory_busy = flash_rom_rd;
+  reg flash_rom_rd_rq = 1'b0 ;
   
   reg [7:0] busy_count = 8'h00;
   wire memory_busy = (|busy_count);
   
   // Debug outputs - monitor SPI signals
-  assign ICE_20 = ICE_16;  // Monitor flash CS (should pulse low during reads)
-  assign ICE_21 = sys_addr[0]; // my_leds[3];  // Monitor stuck
+  assign ICE_20 = flash_rom_ready;  
+  assign ICE_21 = my_leds[3]; // my_leds[3];  // Monitor stuck
   assign ICE_26 = flash_miso_in;  // Monitor flash MISO (data from flash)
   //assign ICE_19 = flash_mosi_out;  // Monitor flash MOSI (data to flash) - PIN 19 does not seem to work well
 
   // Generate wait states for SPI flash access
-  // Need to latch the request and wait for flash_rom_ready to go high
   reg flash_access_pending;
-  reg flash_rom_ready_prev;
-  reg flash_access_done;
+  reg flash_read_enable;  // Pulse to start flash read
 
   always @(posedge sys_clk) begin
-    flash_rom_ready_prev <= flash_rom_ready;
+    flash_read_enable <= 1'b0;  // Default: no read enable
 
-    // One-cycle delay after transaction completes
-    if (flash_access_done) begin
-      flash_access_done <= 1'b0;
+    if (addr_strobe == 1'b1 && flash_rom_rd == 1'b1) begin
+      flash_rom_rd_rq <= 1'b1;  // Latch read request
+      busy_count <= 8'd200;  // Maximum wait time
     end else begin
-      // Start a flash access only if not busy, not in post-access delay, and memory_busy is low
-      if (flash_rom_rd && !flash_access_pending && !memory_busy) begin
+      // Start a flash access if requested and not already pending
+      if (flash_rom_rd_rq && !RAMOE && !flash_access_pending) begin
+        flash_read_enable <= 1'b1;  // Pulse read enable for one clock
         flash_access_pending <= 1'b1;
+        flash_rom_rd_rq <= 1'b0; // Clear request
         busy_count <= 8'd200;  // Maximum wait time
       end
-      // Keep waiting until flash responds (rising edge) or timeout
+      // Keep waiting until flash responds (flash_rom_ready - it will only be high for one clock) or timeout
       else if (flash_access_pending) begin
-        if ((flash_rom_ready && !flash_rom_ready_prev) || busy_count == 0) begin
+        if (flash_rom_ready || busy_count == 0) begin
           flash_access_pending <= 1'b0;
           busy_count <= 0;
-          flash_access_done <= 1'b1; // Insert one-cycle delay before next access
         end else begin
           busy_count <= busy_count - 8'd1;
         end
@@ -218,6 +219,7 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
     .addr(sys_addr),        // Word address from sys.v
     .rom_sel(rom_sel),
     .grom_sel(grom_sel),
+    .read_enable(flash_read_enable),  // Pulse to start read
     .data_out(flash_rom_data),
     .data_ready(flash_rom_ready),
     
@@ -312,6 +314,7 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
       .RAMLB(RAMLB), 
       .RAMUB(RAMUB),
       .ADR(sys_addr),         // Word address output from sys
+      .addr_strobe(addr_strobe),
       .sram_pins_din(sram_pins_din), 
       .sram_pins_dout(sram_pins_dout),
       .sram_pins_drive(sram_pins_drive),

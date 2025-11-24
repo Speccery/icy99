@@ -27,6 +27,7 @@ module spi_flash_rom(
     input wire [22:0] addr,             // 23-bit word address from sys.v
     input wire rom_sel,                 // ROM selected (0x0000-0x1FFF, 8KB)
     input wire grom_sel,                // GROM selected (custom address range)
+    input wire read_enable,             // Start read transaction (pulse high for one clock)
     output reg [15:0] data_out = 16'h0000,  // 16-bit data output
     output reg data_ready = 1'b0,           // Data valid (can be used as ready signal)
     
@@ -98,12 +99,12 @@ module spi_flash_rom(
     // Main SPI state machine
     reg [15:0] powerdown_wait_count;
     always @(posedge clk) begin
+        data_ready <= 1'b0; // By default keep data_ready low, it will be set when data is ready for one clock
         if (reset) begin
             state <= ST_POWERDOWN_RELEASE;
             flash_csn <= 1'b1;
             flash_clk_en <= 1'b0;
             flash_mosi <= 1'b0;
-            data_ready <= 1'b0;
             data_out <= 16'h0000;
             rom_sel_prev <= 1'b0;
             grom_sel_prev <= 1'b0;
@@ -111,14 +112,9 @@ module spi_flash_rom(
             flash_available <= 1'b0;
             powerdown_wait_count <= 16'd0;
         end else begin
-            // Track selection changes - clear data_ready on new access
+            // Track selection changes
             rom_sel_prev <= rom_sel;
             grom_sel_prev <= grom_sel;
-
-            // Clear data_ready when we see a new selection (rising edge)
-            if ((rom_sel && !rom_sel_prev) || (grom_sel && !grom_sel_prev)) begin
-                data_ready <= 1'b0;
-            end
 
             case (state)
                 // Release powerdown sequence
@@ -159,19 +155,14 @@ module spi_flash_rom(
                         flash_csn <= 1'b1;
                         flash_clk_en <= 1'b0;
                         spi_phase <= 1'b0;
-                        // Clear data_ready when selection is removed
-                        if (!rom_sel && !grom_sel) begin
-                            data_ready <= 1'b0;
-                        end
-                        // Start read when ROM or GROM selected
-                        if ((rom_sel || grom_sel)) begin
+                        // Start read when read_enable pulses high
+                        if (read_enable) begin
                             // Calculate flash address based on selection
                             if (rom_sel) begin
                                 flash_addr <= FLASH_ROM_BASE + {addr[12:0], 1'b0};
                             end else begin // grom_sel
                                 flash_addr <= FLASH_GROM_BASE + {addr[14:0], 1'b0};
                             end
-                            data_ready <= 1'b0;         // Clear ready at start of transaction
                             flash_csn <= 1'b0;          // Assert CS
                             flash_clk_en <= 1'b1;       // Enable SPI clock
                             shift_reg <= CMD_READ;      // Load read command
@@ -290,7 +281,7 @@ module spi_flash_rom(
                     flash_clk_en <= 1'b0;       // Disable SPI clock
                     spi_phase <= 1'b0;          // Reset phase
                     data_out <= {data_hi, data_lo};  // Output 16-bit word from flash
-                    data_ready <= 1'b1;
+                    data_ready <= 1'b1;         // Indicate data is ready for one clock only
                     state <= ST_IDLE;
                 end
                 default: begin
