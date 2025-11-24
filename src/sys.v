@@ -180,6 +180,7 @@ module sys
     reset_shifter = { reset_shifter[14:0], 1'b1 };  // Shift in ones
   end
 
+  // wire cpu_reset = 1'b1;  // Force CPU reset to be always on. BUGBUG TESTING
   wire cpu_reset = (cpu_reset_switch_n == 1'b0 || cpu_reset_ctrl[0] == 1'b0) ? 1 : reset; // cpu_reset_switch_n=0 forces CPU reset
 
  wire rd_now, iaq, as;

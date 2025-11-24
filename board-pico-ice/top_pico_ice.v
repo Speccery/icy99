@@ -156,6 +156,7 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   wire [15:0] flash_rom_data;
   wire flash_rom_ready;
   wire [3:0] flash_debug_state;
+  wire flash_available;
   
   // Memory busy logic for SPI flash ROM access (similar to ULX3S SDRAM)
   // The CPU needs to wait while SPI flash read is in progress
@@ -167,7 +168,7 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   
   // Debug outputs - monitor SPI signals
   assign ICE_20 = ICE_16;  // Monitor flash CS (should pulse low during reads)
-  assign ICE_21 = memory_busy;  // Monitor flash CLK (should toggle during transactions)
+  assign ICE_21 = sys_addr[0]; // my_leds[3];  // Monitor stuck
   assign ICE_26 = flash_miso_in;  // Monitor flash MISO (data from flash)
   //assign ICE_19 = flash_mosi_out;  // Monitor flash MOSI (data to flash) - PIN 19 does not seem to work well
 
@@ -227,7 +228,8 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
     .flash_miso(flash_miso_in),   // ICE_SI - MISO (flash to FPGA)
     
     // Debug
-    .debug_state(flash_debug_state)
+    .debug_state(flash_debug_state),
+    .flash_available(flash_available)
   );
   
 
@@ -292,10 +294,14 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   // Ensure PSRAM chip select stays high (we're not using PSRAM yet)
   assign ICE_37 = 1'b1;  // SRAM_SS - PSRAM chip select (active low, keep high)
 
+  wire [3:0] my_leds;
+  assign LED_R = ~my_leds[3]; // CPU is stuck low active
+  assign LED_G = ~my_leds[2]; // CPU reset
+
   sys #(.uart_divider(43)) ti994a(  // 10 MHz / 230400 baud = 43
       .clk(sys_clk),      // Use 10 MHz system clock for CPU and logic  
       .pixel_clk(pixel_clk), // Use 40 MHz pixel clock for VDP
-      .LED(LED_R), 
+      .LED(my_leds), 
 
       .tms9902_tx(1'b1), // these are reversed in sys.v module
       .tms9902_rx(open),

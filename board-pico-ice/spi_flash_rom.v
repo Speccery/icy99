@@ -37,7 +37,8 @@ module spi_flash_rom(
     input wire flash_miso,              // Master in, slave out
     
     // Debug output
-    output wire [3:0] debug_state       // Current state for debugging
+    output wire [3:0] debug_state,      // Current state for debugging
+    output reg flash_available = 1'b0   // High when flash is ready for access
 );
 
     // Flash memory offsets (must match Makefile layout)
@@ -48,17 +49,20 @@ module spi_flash_rom(
     // SPI Flash commands
     localparam CMD_READ = 8'h03;              // Standard SPI read command
     localparam CMD_RDID = 8'h9F;              // Read ID command (for testing)
+    localparam FLASH_CMD_RELEASE_POWERDOWN = 8'hAB; // Release from power-down command
     
     // State machine states
     localparam [3:0]
-        ST_IDLE       = 4'd0,
-        ST_CMD        = 4'd1,
-        ST_ADDR2      = 4'd2,
-        ST_ADDR1      = 4'd3,
-        ST_ADDR0      = 4'd4,
-        ST_READ_HI    = 4'd5,
-        ST_READ_LO    = 4'd6,
-        ST_DONE       = 4'd7;
+        ST_POWERDOWN_RELEASE = 4'd0,
+        ST_POWERDOWN_WAIT    = 4'd1,
+        ST_IDLE              = 4'd2,
+        ST_CMD               = 4'd3,
+        ST_ADDR2             = 4'd4,
+        ST_ADDR1             = 4'd5,
+        ST_ADDR0             = 4'd6,
+        ST_READ_HI           = 4'd7,
+        ST_READ_LO           = 4'd8,
+        ST_DONE              = 4'd9;
     
     reg [3:0] state;
     reg [3:0] bit_count;
@@ -92,9 +96,10 @@ module spi_flash_rom(
     end
     
     // Main SPI state machine
+    reg [15:0] powerdown_wait_count;
     always @(posedge clk) begin
         if (reset) begin
-            state <= ST_IDLE;
+            state <= ST_POWERDOWN_RELEASE;
             flash_csn <= 1'b1;
             flash_clk_en <= 1'b0;
             flash_mosi <= 1'b0;
@@ -103,49 +108,78 @@ module spi_flash_rom(
             rom_sel_prev <= 1'b0;
             grom_sel_prev <= 1'b0;
             spi_phase <= 1'b0;
+            flash_available <= 1'b0;
+            powerdown_wait_count <= 16'd0;
         end else begin
             // Track selection changes - clear data_ready on new access
             rom_sel_prev <= rom_sel;
             grom_sel_prev <= grom_sel;
-            
+
             // Clear data_ready when we see a new selection (rising edge)
             if ((rom_sel && !rom_sel_prev) || (grom_sel && !grom_sel_prev)) begin
                 data_ready <= 1'b0;
             end
-            
+
             case (state)
-                ST_IDLE: begin
-                    flash_csn <= 1'b1;
-                    flash_clk_en <= 1'b0;
+                // Release powerdown sequence
+                ST_POWERDOWN_RELEASE: begin
+                    flash_csn <= 1'b0;          // Assert CS
+                    flash_clk_en <= 1'b1;       // Enable SPI clock
+                    shift_reg <= FLASH_CMD_RELEASE_POWERDOWN;
+                    bit_count <= 4'd7;
                     spi_phase <= 1'b0;
-                    
-                    // Clear data_ready when selection is removed
-                    if (!rom_sel && !grom_sel) begin
-                        data_ready <= 1'b0;
-                    end
-                    
-                    // Start read when ROM or GROM selected
-                    // Always start a new transaction when selected, even if data_ready is high
-                    if ((rom_sel || grom_sel)) begin
-                        // Calculate flash address based on selection
-                        if (rom_sel) begin
-                            // ROM: map word address to byte address with offset
-                            flash_addr <= FLASH_ROM_BASE + {addr[12:0], 1'b0};
-                        end else begin // grom_sel
-                            // GROM: map to appropriate flash offset
-                            flash_addr <= FLASH_GROM_BASE + {addr[13:0], 1'b0};
+                    flash_available <= 1'b0;
+                    state <= ST_POWERDOWN_WAIT;
+                end
+                ST_POWERDOWN_WAIT: begin
+                    // Send release powerdown command (single byte)
+                    if (spi_phase == 1'b0) begin
+                        flash_mosi <= shift_reg[7];
+                        spi_phase <= 1'b1;
+                    end else begin
+                        shift_reg <= {shift_reg[6:0], 1'b0};
+                        spi_phase <= 1'b0;
+                        if (bit_count == 4'd0) begin
+                            flash_csn <= 1'b1;      // Deassert CS
+                            flash_clk_en <= 1'b0;   // Disable SPI clock
+                            powerdown_wait_count <= 16'd50000; // Wait ~5ms @ 10MHz
+                            state <= ST_IDLE;
+                        end else begin
+                            bit_count <= bit_count - 1'b1;
                         end
-                        
-                        data_ready <= 1'b0;         // Clear ready at start of transaction
-                        flash_csn <= 1'b0;          // Assert CS
-                        flash_clk_en <= 1'b1;       // Enable SPI clock
-                        shift_reg <= CMD_READ;      // Load read command
-                        bit_count <= 4'd7;
-                        state <= ST_CMD;
-                        // spi_phase will be 0 on next clock (first phase = setup)
                     end
                 end
-                
+                ST_IDLE: begin
+                    // Wait for powerdown release to complete
+                    if (powerdown_wait_count != 16'd0) begin
+                        powerdown_wait_count <= powerdown_wait_count - 1'b1;
+                        flash_available <= 1'b0;
+                    end else begin
+                        flash_available <= 1'b1;
+                        flash_csn <= 1'b1;
+                        flash_clk_en <= 1'b0;
+                        spi_phase <= 1'b0;
+                        // Clear data_ready when selection is removed
+                        if (!rom_sel && !grom_sel) begin
+                            data_ready <= 1'b0;
+                        end
+                        // Start read when ROM or GROM selected
+                        if ((rom_sel || grom_sel)) begin
+                            // Calculate flash address based on selection
+                            if (rom_sel) begin
+                                flash_addr <= FLASH_ROM_BASE + {addr[12:0], 1'b0};
+                            end else begin // grom_sel
+                                flash_addr <= FLASH_GROM_BASE + {addr[14:0], 1'b0};
+                            end
+                            data_ready <= 1'b0;         // Clear ready at start of transaction
+                            flash_csn <= 1'b0;          // Assert CS
+                            flash_clk_en <= 1'b1;       // Enable SPI clock
+                            shift_reg <= CMD_READ;      // Load read command
+                            bit_count <= 4'd7;
+                            state <= ST_CMD;
+                        end
+                    end
+                end
                 // Send READ command (0x03)
                 ST_CMD: begin
                     if (spi_phase == 1'b0) begin
@@ -165,7 +199,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 // Send address byte 2 (MSB)
                 ST_ADDR2: begin
                     if (spi_phase == 1'b0) begin
@@ -183,7 +216,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 // Send address byte 1
                 ST_ADDR1: begin
                     if (spi_phase == 1'b0) begin
@@ -201,7 +233,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 // Send address byte 0 (LSB)
                 ST_ADDR0: begin
                     if (spi_phase == 1'b0) begin
@@ -219,7 +250,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 // Read high byte of 16-bit word
                 ST_READ_HI: begin
                     if (spi_phase == 1'b0) begin
@@ -238,7 +268,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 // Read low byte of 16-bit word
                 ST_READ_LO: begin
                     if (spi_phase == 1'b0) begin
@@ -256,7 +285,6 @@ module spi_flash_rom(
                         end
                     end
                 end
-                
                 ST_DONE: begin
                     flash_csn <= 1'b1;          // Deassert CS
                     flash_clk_en <= 1'b0;       // Disable SPI clock
@@ -265,7 +293,6 @@ module spi_flash_rom(
                     data_ready <= 1'b1;
                     state <= ST_IDLE;
                 end
-                
                 default: begin
                     state <= ST_IDLE;
                 end
