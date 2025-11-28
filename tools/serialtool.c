@@ -13,6 +13,8 @@
 
 unsigned fpga_addr=0;
 int verbose = 0;
+int write_delay_us = 0;  // Microsecond delay after writes (for RP2040 USB-CDC)
+int block_size = 1024;   // Block size for write operations (default 1024)
 
 // Opens the specified serial port, sets it up for binary communication,
 // configures its read timeouts, and sets its baud rate.
@@ -100,6 +102,9 @@ int write_port(int fd, uint8_t * buffer, size_t size)
   {
     perror("failed to write to port");
     return -1;
+  }
+  if (write_delay_us > 0) {
+    usleep(write_delay_us);
   }
   return 0;
 }
@@ -224,7 +229,7 @@ void read_memory_block(int fd, unsigned char *dest, unsigned address, int len) {
 }
 
 int write_memory_block(int fd, unsigned char *source, unsigned address, int len) {
-  int chunk = len > 1024 ? 1024 : len;
+  int chunk = len > block_size ? block_size : len;
   setup_hw_address(fd, address);
   // Enable autoincrement mode and configure length
   if(write_port(fd, (uint8_t *)"M3", 2))
@@ -235,7 +240,9 @@ int write_memory_block(int fd, unsigned char *source, unsigned address, int len)
     return -2;
   if(write_port(fd, source, chunk))
     return -3;
-  try_sync(fd, verbose);
+  if(!try_sync(fd, verbose)) {
+    return -4;
+  }
   return chunk;
 }
 
@@ -251,14 +258,19 @@ int load_file(int fd, char *filename, unsigned addr) {
   do {
     n = fread(buf, sizeof(uint8_t), sizeof(buf), f);
     if(n > 0) {
-      int r = write_memory_block(fd, buf, addr, n);
-      if(r < 0) {
-        fprintf(stderr, "write_memory_block failed %d\n", r);
-        fclose(f);
-        return r;
+      // Write may be partial due to block_size, loop until all bytes written
+      int offset = 0;
+      while(offset < n) {
+        int r = write_memory_block(fd, buf + offset, addr, n - offset);
+        if(r < 0) {
+          fprintf(stderr, "write_memory_block failed %d\n", r);
+          fclose(f);
+          return r;
+        }
+        addr += r;
+        offset += r;
+        total += r;
       }
-      addr += n;
-      total += n;
     }
   } while(n > 0);
   printf("load_file done, wrote %d bytes, final address %X\n", total, addr);
@@ -268,8 +280,10 @@ int load_file(int fd, char *filename, unsigned addr) {
 void print_help(const char *progname) {
   printf("Usage: %s [options] <command> [arguments]\n\n", progname);
   printf("Options:\n");
-  printf("  --port <port>   Specify serial port (overrides SERIALTOOL_PORT env var)\n");
-  printf("  -v              Enable verbose output\n");
+  printf("  --port <port>      Specify serial port (overrides SERIALTOOL_PORT env var)\n");
+  printf("  --delay <us>       Add delay in microseconds after each write (for RP2040)\n");
+  printf("  --block-size <n>   Set write block size in bytes (default: 1024)\n");
+  printf("  -v                 Enable verbose output\n");
   printf("  Environment variable SERIALTOOL_PORT can be set to avoid specifying port\n\n");
   printf("Commands:\n");
   printf("  -w <filename> <address> <length>  Write file to memory\n");
@@ -321,6 +335,28 @@ int main(int argc, char *argv[])
       }
       device = argv[argi + 1];
       argi += 2;
+    } else if(!strcmp(argv[argi], "--delay")) {
+      if(argi + 1 >= argc) {
+        fprintf(stderr, "Error: --delay requires an argument\n");
+        print_help(argv[0]);
+        return 1;
+      }
+      write_delay_us = atoi(argv[argi + 1]);
+      if(verbose) printf("Write delay set to %d microseconds\n", write_delay_us);
+      argi += 2;
+    } else if(!strcmp(argv[argi], "--block-size")) {
+      if(argi + 1 >= argc) {
+        fprintf(stderr, "Error: --block-size requires an argument\n");
+        print_help(argv[0]);
+        return 1;
+      }
+      block_size = atoi(argv[argi + 1]);
+      if(block_size < 1 || block_size > 1024) {
+        fprintf(stderr, "Error: block size must be between 1 and 1024\n");
+        return 1;
+      }
+      if(verbose) printf("Block size set to %d bytes\n", block_size);
+      argi += 2;
     } else if(!strcmp(argv[argi], "-v")) {
       verbose = 1;
       argi++;
@@ -342,7 +378,8 @@ int main(int argc, char *argv[])
   int fd = open_serial_port(device, baud_rate);
   if (fd < 0) { return 1; }
 
-  printf("Opened serial port %s at %u baud\n", device, baud_rate);
+  if (verbose)  
+    printf("Opened serial port %s at %u baud\n", device, baud_rate);
 
   int in_sync = 0;
   for(int tries = 0; tries < 512; tries++) {
@@ -511,17 +548,21 @@ int main(int argc, char *argv[])
         printf("Short read, adjusting length to %d\n", length);
       }
       if(n > 0) {
-        int r = write_memory_block(fd, buf, address, n);
-        if(r < 0) {
-          fprintf(stderr, "write_memory_block failed %d\n", r);
-          fclose(f);
-          close(fd);
-          return 1;
-        } else {
-          printf("Wrote %d bytes at address %X\n", n, address);
+        // Write may be partial due to block_size, loop until all bytes written
+        int offset = 0;
+        while(offset < n) {
+          int r = write_memory_block(fd, buf + offset, address, n - offset);
+          if(r < 0) {
+            fprintf(stderr, "write_memory_block failed %d\n", r);
+            fclose(f);
+            close(fd);
+            return 1;
+          }
+          if(verbose) printf("Wrote %d bytes at address %X\n", r, address);
+          address += r;
+          offset += r;
+          total += r;
         }
-        address += n;
-        total += n;
       }
     } while(n > 0);
     printf("load_file done, wrote %d bytes, final address %X\n", total, address);

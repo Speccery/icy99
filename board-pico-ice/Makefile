@@ -160,24 +160,24 @@ enter2:
 	../tools/serialtool -p 1000001 ff
 
 init9918:
-	# TMS9918 register write protocol: DATA first, then (0x80 | register_number)
-	# we write the following register values: 00, E0, F0, 0E, F9, 86, F8, 01
-	../tools/serialtool -p 800002 00 # value 00
-	../tools/serialtool -p 800002 80 # register 0 = 0x80
-	../tools/serialtool -p 800002 E0 # value E0
-	../tools/serialtool -p 800002 81 # register 1 = 0x81
-	../tools/serialtool -p 800002 F0 # value F0
-	../tools/serialtool -p 800002 82 # register 2 = 0x82
-	../tools/serialtool -p 800002 0E # value 0E
-	../tools/serialtool -p 800002 83 # register 3 = 0x83
-	../tools/serialtool -p 800002 F9 # value F9
-	../tools/serialtool -p 800002 84 # register 4 = 0x84
-	../tools/serialtool -p 800002 86 # value 86
-	../tools/serialtool -p 800002 85 # register 5 = 0x85
-	../tools/serialtool -p 800002 F8 # value F8
-	../tools/serialtool -p 800002 86 # register 6 = 0x86
-	../tools/serialtool -p 800002 01 # value 01
-	../tools/serialtool -p 800002 87 # register 7 = 0x87
+	@# TMS9918 register write protocol: DATA first, then (0x80 | register_number)
+	@# we write the following register values: 00, E0, F0, 0E, F9, 86, F8, 01
+	@../tools/serialtool -p 800002 00 # value 00
+	@../tools/serialtool -p 800002 80 # register 0 = 0x80
+	@../tools/serialtool -p 800002 E0 # value E0
+	@../tools/serialtool -p 800002 81 # register 1 = 0x81
+	@../tools/serialtool -p 800002 F0 # value F0
+	@../tools/serialtool -p 800002 82 # register 2 = 0x82
+	@../tools/serialtool -p 800002 0E # value 0E
+	@../tools/serialtool -p 800002 83 # register 3 = 0x83
+	@../tools/serialtool -p 800002 F9 # value F9
+	@../tools/serialtool -p 800002 84 # register 4 = 0x84
+	@../tools/serialtool -p 800002 86 # value 86
+	@../tools/serialtool -p 800002 85 # register 5 = 0x85
+	@../tools/serialtool -p 800002 F8 # value F8
+	@../tools/serialtool -p 800002 86 # register 6 = 0x86
+	@../tools/serialtool -p 800002 04 # value 04
+	@../tools/serialtool -p 800002 87 # register 7 = 0x87
 
 set_vdp_addr_wr:
 	# Set VDP address to 0 for writes
