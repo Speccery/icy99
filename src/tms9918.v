@@ -21,13 +21,14 @@
 
 module tms9918(
 	input wire clk,
+  input wire pixel_clk,
 	input wire reset,
 	input wire mode,        // 1 for registers, 0 for memory
 	input wire [7:0] addr,  // extension, 8 bit address in
 	input wire [7:0] data_in,
 	output wire [15:0] data_out,  // extended to 16-bits (top 8 correspond to 8-bit interface)
-  output reg cpu_read_cycle_ack,
-  output reg cpu_write_cycle_ack,
+  output reg cpu_read_cycle_ack,   // On clk domain
+  output reg cpu_write_cycle_ack,  // On clk domain
 	input wire wr,          // high for 1 clock cycle to write
 	input wire rd,          // can be high multiple cycles. high-to-low transition increments addr for data reads
 	output reg vga_vsync,
@@ -105,7 +106,6 @@ reg vdp_mode_prev;
 reg [1:0] vdp_addr_prev;  // video refresh circuit
 wire columns_80 = reg0[2];
 reg clk25MHz;  // 25MHz 25/75 clock
-reg [1:0] clkdiv=0;
 wire Hsync;
 wire Vsync;
 wire [9:0] VGARow;
@@ -323,7 +323,7 @@ end
   reg [3:0] pixel_out_4bit = 4'h0;
   reg [7:0] palettized = 8'h0;
 
-  always @(posedge clk)
+  always @(posedge pixel_clk)
   begin
     wr_setup_delay <= 1'b0;
     if (wr_go != gogo) begin
@@ -408,7 +408,54 @@ end
   // cpu_mem_write is high when CPU wants to write VRAM
   wire cpu_mem_write;
   reg cpu_mem_write_pending = 1'b0;
+  // Track register reads separately
+  wire cpu_reg_read = (rd == 1'b1 && mode == 1'b1) || (rd == 1'b1 && mode == 1'b0 && addr[7:6]!=2'b00);
+  // Track register writes separately
+  wire cpu_reg_write = (wr == 1'b1 && mode == 1'b1 && addr[7:6] == 2'b00);
+  // Hold register read/write acks for pulse detection
+  reg reg_read_ack_active = 1'b0;
+  reg reg_write_ack_active = 1'b0;
   assign cpu_mem_write = (mode == 1'b0 && wr == 1'b1 && addr[7:6] == 2'b00);
+  
+  // Status register clear request (clk domain) - toggle signal
+  reg stat_clear_toggle = 1'b0;
+  
+  // Clock domain crossing synchronizers: clk domain -> pixel_clk domain
+  reg cpu_mem_read_pending_sync1 = 1'b0, cpu_mem_read_pending_sync2 = 1'b0;
+  reg cpu_mem_write_pending_sync1 = 1'b0, cpu_mem_write_pending_sync2 = 1'b0;
+  reg stat_clear_sync1 = 1'b0, stat_clear_sync2 = 1'b0, stat_clear_sync3 = 1'b0;
+  
+  always @(posedge pixel_clk) begin
+    cpu_mem_read_pending_sync1 <= cpu_mem_read_pending;
+    cpu_mem_read_pending_sync2 <= cpu_mem_read_pending_sync1;
+    cpu_mem_write_pending_sync1 <= cpu_mem_write_pending;
+    cpu_mem_write_pending_sync2 <= cpu_mem_write_pending_sync1;
+    stat_clear_sync1 <= stat_clear_toggle;
+    stat_clear_sync2 <= stat_clear_sync1;
+    stat_clear_sync3 <= stat_clear_sync2;
+  end
+  
+  // Detect toggle change in pixel_clk domain (either edge triggers clear)
+  wire stat_clear_pixel = stat_clear_sync2 != stat_clear_sync3;
+  
+  // Internal ack signals in pixel_clk domain
+  reg cpu_read_ack_pixel = 1'b0;
+  reg cpu_write_ack_pixel = 1'b0;
+  
+  // Synchronize acks from pixel_clk domain back to clk domain
+  reg cpu_read_ack_sync1 = 1'b0, cpu_read_ack_sync2 = 1'b0;
+  reg cpu_write_ack_sync1 = 1'b0, cpu_write_ack_sync2 = 1'b0;
+  
+  always @(posedge clk) begin
+    cpu_read_ack_sync1 <= cpu_read_ack_pixel;
+    cpu_read_ack_sync2 <= cpu_read_ack_sync1;
+    cpu_write_ack_sync1 <= cpu_write_ack_pixel;
+    cpu_write_ack_sync2 <= cpu_write_ack_sync1;
+  end
+  
+  // VRAM acks from pixel domain (pulse detection)
+  wire cpu_read_vram_ack = cpu_read_ack_sync2 && !cpu_read_ack_sync1;
+  wire cpu_write_vram_ack = cpu_write_ack_sync2 && !cpu_write_ack_sync1;
 
   assign debug1 = vga_bank;
   assign debug2 = refresh_state == wait_line ? 1'b1 : 1'b0;
@@ -445,23 +492,23 @@ end
     reg [7:0] border;
 
     if(reset == 1'b1) begin
+      // Initialize clk domain signals only
       write_state <= 1'b0;
       bump_rq <= 1'b0;
-      refresh_state <= wait_frame;
-      stat_reg0 <= 8'h00;
-      stat_reg1 <= 8'h00; // Pretend that this is 9938
-      sig_coinc_pending <= 1'b0;
-      sig_5th_pending <= 1'b0;
       cpu_mem_write_pending <= 1'b0;
       cpu_mem_read_pending <= 1'b0;
       cpu_read_already_done <= 1'b0;
-      ram_pipeline_reads <= 1'b0;
+      cpu_read_cycle_ack <= 1'b0;
+      cpu_write_cycle_ack <= 1'b0;
+      // VDP registers (CPU-accessible, so in clk domain)
       reg0 <= 8'h00;
       reg1 <= 8'h00;
-      detect_frame_end <= 1'b0;
-      detect_line_end  <= 1'b0;
-      drawing <= 1'b0;
-      mask_coinc_before_next_render <= 1'b0;
+      reg2 <= 8'h00;
+      reg3 <= 8'h00;
+      reg4 <= 8'h00;
+      reg5 <= 8'h00;
+      reg6 <= 8'h00;
+      reg7 <= 8'h03;  // debug: init the border color to something visible
       reg9 <= 8'h00;
       reg10 <= 8'h00;
       reg11 <= 8'h00;
@@ -471,27 +518,15 @@ end
       reg17 <= 8'h00;
       reg19 <= 8'h00;
       reg49 <= 8'h00;
-      mode9938 <= 1'b0;
-      reg7 <= 8'h03;  // debug: init the border color to something visible 
+      mode9938 <= 1'b0; 
     end else begin
-      // // Divide 100MHz clk by 4 to issue pulses in clk25Mhz. 
-      // // It is high once per 4 clock cycles.
-      k = (clkdiv) + 1;
-      clkdiv <= k;
-      // // FIXME CHECK clkdiv'length));
-      // clk25MHz <= 1'b0;
-      // if(clkdiv == 2'b11) begin
-      //   clk25MHz <= 1'b1;
-      // end
       clk25MHz <= 1'b1; // With Lattice ICE40HX version clock is 25MHz and this behaves as enable
 
       ram_pipeline_reads <= 1'b0;
-      cpu_read_cycle_ack <= 1'b0;
-      cpu_write_cycle_ack <= 1'b0;
 
       if(wr == 1'b1 && mode == 1'b1 && addr[7:6] == 2'b00) begin
         // write cycles to registers etc.
-        cpu_write_cycle_ack <= 1'b1;  // ack this cycle, its a register write
+        cpu_write_cycle_ack <= 1'b1;  // ack this cycle, its a register write (synchronous to clk)
 
         if(write_state == 1'b0) begin
           hold_reg <= data_in;
@@ -543,33 +578,80 @@ end
         write_state <= 1'b0;
       end
 
-      // generate ack for VDP register read cycles and extended status reg read cycles
-      if((rd == 1'b1 && mode == 1'b1) || (rd == 1'b1 && mode == 1'b0 && addr[7:6]!=2'b00))
+      // Generate single-cycle acks - always clear, then conditionally set
+      cpu_read_cycle_ack <= 1'b0;
+      cpu_write_cycle_ack <= 1'b0;
+
+      // Generate ack pulses for register reads (immediate, synchronous to clk)
+      if(cpu_reg_read)
         cpu_read_cycle_ack <= 1'b1;
+
+      // Generate ack pulse for register writes (immediate, synchronous to clk)
+      if(cpu_reg_write)
+        cpu_write_cycle_ack <= 1'b1;
 
       if(cpu_mem_write)
         cpu_mem_write_pending <= 1'b1;
+      else if(cpu_write_vram_ack)  // Clear when VRAM write ack seen
+        cpu_mem_write_pending <= 1'b0;
+        
       if(cpu_mem_read)
         cpu_mem_read_pending <= 1'b1;
+      else if(cpu_read_vram_ack)  // Clear when VRAM read ack seen
+        cpu_mem_read_pending <= 1'b0;
+        
       if(rd == 1'b0)
         cpu_read_already_done <= 1'b0;
+      else if(cpu_read_vram_ack)
+        cpu_read_already_done <= 1'b1;
+      
+      // Handle bump_rq when VRAM acks are received
+      if((cpu_read_vram_ack || cpu_write_vram_ack) && rd == 1'b0)
+        bump_rq <= 1'b1;
+      
+      // Generate CPU cycle acks for VRAM accesses (from pixel domain)
+      if(cpu_read_vram_ack)
+        cpu_read_cycle_ack <= 1'b1;
+        
+      if(cpu_write_vram_ack)
+        cpu_write_cycle_ack <= 1'b1;
 
       vdp_rd_prev <= rd;
       vdp_mode_prev <= mode;
       vdp_addr_prev <= addr[7:6];
+      // Request status register clear when read goes inactive
       if(vdp_rd_prev == 1'b1 && rd == 1'b0 && vdp_mode_prev == 1'b1 && vdp_addr_prev == 2'b00 
         && (!mode9938 || (mode9938 && reg15[3:0] == 4'h0))) begin
-        // read became inactive on status register, clear interrupt request
-        stat_reg0[7] <= 1'b0;
-        stat_reg0[6] <= 1'b0;
-        // also reset fifth sprite bit if active
-        stat_reg0[5] <= 1'b0;
-        // and coincide flag, if any two sprites have overlapping pixels (transparent are considered too)
+        stat_clear_toggle <= ~stat_clear_toggle;  // Toggle to signal pixel domain
       end
       if(bump_rq == 1'b1 && rd == 1'b0) begin
         vram_addr <= 1 + vram_addr; // Needs to be modified for 9938
         bump_rq <= 1'b0;
       end
+    end
+  end
+
+  always @(posedge pixel_clk, posedge reset) begin : P2
+    if(reset == 1'b1) begin
+      // Initialize pixel_clk domain signals only
+      refresh_state <= wait_frame;
+      sig_coinc_pending <= 1'b0;
+      sig_5th_pending <= 1'b0;
+      ram_pipeline_reads <= 1'b0;
+      detect_frame_end <= 1'b0;
+      detect_line_end  <= 1'b0;
+      drawing <= 1'b0;
+      mask_coinc_before_next_render <= 1'b0;
+      cpu_read_ack_pixel <= 1'b0;
+      cpu_write_ack_pixel <= 1'b0;
+      vga_hsync <= 1'b0;
+      vga_vsync <= 1'b0;
+      vga_red <= 3'b000;
+      vga_green <= 3'b000;
+      vga_blue <= 2'b00;
+      stat_reg0 <= 8'h00;
+      stat_reg1 <= 8'h00;
+    end else begin
       // VGA processing
       vga_hsync <= Hsync;
       vga_vsync <= Vsync;
@@ -625,12 +707,20 @@ end
       vga_red <= palettized[7:5];
       vga_green <= palettized[4:2];
       vga_blue <= palettized[1:0];
+      
+      // Handle status register clear from CPU (synchronized from clk domain)
+      if (stat_clear_pixel) begin
+        stat_reg0[7] <= 1'b0;  // Clear interrupt
+        stat_reg0[6] <= 1'b0;  // Clear 5th sprite
+        stat_reg0[5] <= 1'b0;  // Clear coincidence
+      end
+      
       //----------------------------------------------------------
       // Main state machine.
       //
       // Handle reading from vram and writing to line buffer.
       //----------------------------------------------------------
-      if(1) begin // EPEP run on every cycle; if(clkdiv[0] == 1'b0) begin
+      if(1) begin // EPEP run on every cycle
         // By default read and write requests off
         ram_read_rq <= 1'b0;
         ram_write_rq <= 1'b0;
@@ -672,13 +762,13 @@ end
             // Debug counters
             dbg_bytes_read_total <= dbg_bytes_read_count;
             dbg_bytes_read_count <= 0;
-          end else if (cpu_mem_read || cpu_mem_read_pending) begin 
+          end else if (cpu_mem_read_pending_sync2) begin 
              // Yield to CPU read if CPU wants to read
              vram_out_addr <= vram_addr;
              refresh_return_state <= refresh_state;
              refresh_state <= cpu_vram_read0;
              ram_read_rq <= 1'b1;
-          end else if (cpu_mem_write || cpu_mem_write_pending) begin
+          end else if (cpu_mem_write_pending_sync2) begin
              // CPU makes a write cycle to VRAM
              vram_out_addr <= vram_addr;
              refresh_return_state <= refresh_state;
@@ -787,13 +877,13 @@ end
             else begin
               // Here we have an opportunity to yield the VRAM bus to CPU reads and writes
               if (1) begin
-                if (cpu_mem_read || cpu_mem_read_pending) begin 
+                if (cpu_mem_read_pending_sync2) begin 
                   // Yield to CPU read if CPU wants to read
                   vram_out_addr <= vram_addr;
                   refresh_return_state <= refresh_state;
                   refresh_state <= cpu_vram_read0;
                   ram_read_rq <= 1'b1;
-                end else if (cpu_mem_write || cpu_mem_write_pending) begin
+                end else if (cpu_mem_write_pending_sync2) begin
                   // CPU makes a write cycle to VRAM
                   vram_out_addr <= vram_addr;
                   refresh_return_state <= refresh_state;
@@ -1048,13 +1138,13 @@ end
             end
           end else if (VGACol < slv_760-10'd32) begin
             // If we still have some time before the timing mark yield to CPU if necessary          
-            if (cpu_mem_read || cpu_mem_read_pending) begin 
+            if (cpu_mem_read_pending_sync2) begin 
               // Yield to CPU read if CPU wants to read
               vram_out_addr <= vram_addr;
               refresh_return_state <= refresh_state;
               refresh_state <= cpu_vram_read0;
               ram_read_rq <= 1'b1;
-            end else if (cpu_mem_write || cpu_mem_write_pending) begin
+            end else if (cpu_mem_write_pending_sync2) begin
               // CPU makes a write cycle to VRAM
               vram_out_addr <= vram_addr;
               refresh_return_state <= refresh_state;
@@ -1067,24 +1157,23 @@ end
           if(ram_read_ack) begin
             refresh_state <= refresh_return_state;
             mem_rd_bus <= mem_data_in;
-            cpu_mem_read_pending <= 1'b0;
-            cpu_read_already_done <= 1'b1;
-            bump_rq <= 1'b1;
-            cpu_read_cycle_ack <= 1'b1;
+            cpu_read_ack_pixel <= 1'b1;  // Generate ack in pixel_clk domain
+          end else begin
+            cpu_read_ack_pixel <= 1'b0;
           end
         end
         cpu_vram_write0: begin  // Simply wait for the write cycle to get done.
           if(ram_write_ack) begin
             refresh_state <= refresh_return_state;
-            cpu_mem_write_pending <= 1'b0;
-            bump_rq <= 1'b1;
-            cpu_write_cycle_ack <= 1'b1;
+            cpu_write_ack_pixel <= 1'b1;  // Generate ack in pixel_clk domain
+          end else begin
+            cpu_write_ack_pixel <= 1'b0;
           end
         end 
         endcase
       end
-    end
-  end
+    end  // end of else (non-reset operation)
+  end  // end of P2 always block
 
   assign line_buf_addra = {~vga_bank,wr_render_addr};
   assign line_buf_addrb = {vga_bank,VGACol[8:0]};
@@ -1104,7 +1193,7 @@ end
     wire not_used_8;
 
   dualport_par #(.WIDTH(9), .DEPTH(10)) LINEBUFFER(
-    .clk_a(clk),
+    .clk_a(pixel_clk),
     .we_a(pixel_write),
     .addr_a(line_buf_addra),
     .din_a( {line_buf_bit8_in, vga_line_buf_in}),
@@ -1116,7 +1205,7 @@ end
 
   wire [7:0] not_user_7_0;
   dualport_par #(.WIDTH(9), .DEPTH(9)) RENDERBUFFER( 
-    .clk_a(clk),
+    .clk_a(pixel_clk),
     .we_a(sprite_presence_write),
     .addr_a(line_buf_addra[8:0]),
     .din_a( {line_buf_bit8_in, vga_line_buf_in}),
@@ -1172,14 +1261,14 @@ end
     .MASKWREN({2'b11, 2'b11}),       // Write to both bytes (we only use lower byte)
     .WREN(spram_we),
     .CHIPSELECT(1'b1),
-    .CLOCK(clk),
+    .CLOCK(pixel_clk),
     .STANDBY(1'b0),
     .SLEEP(1'b0),
     .POWEROFF(1'b1)
   );
   
   // SPRAM access state machine
-  always @(posedge clk) begin
+  always @(posedge pixel_clk) begin
     case (spram_state)
       SP_IDLE: begin
         spram_we <= 1'b0;
@@ -1227,7 +1316,7 @@ end
   wire [7:0] ram_read_out;
   assign mem_data_in = ram_read_buffer;
 
-  always @(posedge clk)
+  always @(posedge pixel_clk)
   begin 
     // Simulate external ram controller by delaying data reads.
      read_ack_delay <= { read_ack_delay[0], ram_read_rq };
@@ -1250,7 +1339,7 @@ end
 `endif
   
   VGA_SYNC vgadriver(
-    .clk(clk),
+    .clk(pixel_clk),
     .video_on(video_on),
     .horiz_sync(Hsync),
     .vert_sync(Vsync),

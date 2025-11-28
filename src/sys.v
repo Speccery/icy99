@@ -90,6 +90,12 @@ module sys
   wire rd, wr;
   wire [15:0] ab, db_out, db_in, xram_o;
 
+  // VDP-specific reset (independent from CPU reset)
+  wire vdp_reset = cpu_reset;
+  // Hardwire CPU and TMS9901 to reset for VDP-only testing
+  wire cpu_forced_reset = 1'b1;  // Keep CPU in reset
+  wire tms9901_forced_reset = 1'b1;  // Keep TMS9901 in reset
+
  //-------------------------------------------------------------------
    // TIPI interface
   wire tipi_db_dir;
@@ -254,7 +260,7 @@ dualport_par #(36,8) tracebuf2(clk, trace_we, trace_addr, trace_data_in2, clk, b
  `endif
 
   tms9900 cpu(    
-        clk, cpu_reset,
+        clk, cpu_forced_reset,  // Force CPU to stay in reset
         ab,
         db_in,  db_out,
         rd,     wr,   rd_now,
@@ -357,14 +363,15 @@ wire vdp_write_rq, vdp_write_ack;
 wire vdp_pipeline_reads;
 
 tms9918 vdp(
-	.clk(pixel_clk),    // VDP uses pixel clock for video pipeline
-	.reset(cpu_reset),  // used to be reset, now cpu_reset -> interrupts will be disabled
-	.mode(ab[1]),
-	.addr(ab[8:1]),
-	.data_in(db_out[15:8]),
+	.clk(clk),          // VDP uses system clock for CPU-facing interface
+	.pixel_clk(pixel_clk), // VDP uses pixel clock for video pipeline
+	.reset(vdp_reset),  // VDP reset independent from CPU
+	.mode(serloader_vdp_access ? serloader_vdp_mode : ab[1]),
+	.addr(serloader_vdp_access ? serloader_vdp_addr : ab[8:1]),
+	.data_in(serloader_vdp_access ? bootloader_dout : db_out[15:8]),
 	.data_out(vdp_data_out),
-	.wr(vdp_wr),
-	.rd(vdp_rd),
+	.wr(serloader_vdp_access ? serloader_vdp_wr_pulse : vdp_wr),
+	.rd(serloader_vdp_access ? serloader_vdp_rd_pulse : vdp_rd),
   .cpu_read_cycle_ack(cpu_vdp_rd_ack),
   .cpu_write_cycle_ack(cpu_vdp_wr_ack),
 	.vga_vsync(vsync),
@@ -422,15 +429,16 @@ tms9918 vdp(
   wire [6:1] n_INT;
 
 
-  tms9901 psi( .clk(clk), .n_reset(!cpu_reset), .n_ce(n_9901CE), 
+  tms9901 psi( .clk(clk), .n_reset(!tms9901_forced_reset), .n_ce(n_9901CE), 
     .cruin(cruout), .cruclk(cruclk), .cruout(cruin_9901),
     .S(ab[5:1]), .n_intreq(n_int_req), .n_INT(n_INT),
     .POUT(tms9901_out), .PIN(pin_signals), .DIR(tms9901_dir) 
   );
 
-  assign LED[1:0] = tms9901_out[1:0]; // ab[6:1];
-  assign LED[2] = cpu_reset_ctrl[0];
-  assign LED[3] = stuck;
+  assign LED[0] = 1'b0;
+  assign LED[1] = serloader_vdp_access; 
+  assign LED[2] = serloader_vdp_wr_rq;
+  assign LED[3] = cpu_vdp_wr_ack;
 
   reg bootloader_write_ack2 = 1'b0;
   reg bootloader_read_ack2 = 1'b0;
@@ -644,6 +652,30 @@ tms9918 vdp(
   wire [7:0] sbootloader_din, sbootloader_dout;
   wire sbootloader_read_ack, sbootloader_write_ack;
 
+  // Serloader VDP access
+  // 0x800000-0x8000FF: VDP registers (bits 8:1 select register)
+  // 0x880000-0x88FFFF: VDP VRAM data (address ignored, uses VDP auto-increment)
+  wire serloader_vdp_reg_access = (bootloader_addr[23:16] == 8'h80);
+  wire serloader_vdp_data_access = (bootloader_addr[23:16] == 8'h88);
+  wire serloader_vdp_access = serloader_vdp_reg_access || serloader_vdp_data_access;
+  
+  // Generate pulses for VDP wr/rd (edge-triggered, not level)
+  reg serloader_vdp_wr_prev = 1'b0, serloader_vdp_rd_prev = 1'b0;
+  reg serloader_vdp_wr_pulse = 1'b0, serloader_vdp_rd_pulse = 1'b0;
+  wire serloader_vdp_wr_rq = serloader_vdp_access && bootloader_write_rq;
+  wire serloader_vdp_rd_rq = serloader_vdp_access && bootloader_read_rq;
+  
+  always @(posedge clk) begin
+    serloader_vdp_wr_prev <= serloader_vdp_wr_rq;
+    serloader_vdp_rd_prev <= serloader_vdp_rd_rq;
+    // Generate single-cycle pulses on rising edge
+    serloader_vdp_wr_pulse <= serloader_vdp_wr_rq && !serloader_vdp_wr_prev;
+    serloader_vdp_rd_pulse <= serloader_vdp_rd_rq && !serloader_vdp_rd_prev;
+  end
+  
+  wire [7:0] serloader_vdp_addr = serloader_vdp_reg_access ? bootloader_addr[8:1] : 8'h00;  // For registers use bits[8:1], for data use addr 0
+  wire serloader_vdp_mode = serloader_vdp_reg_access ? 1'b1 : 1'b0;  // 1=register, 0=data
+
   // Declare the actual bootloader signals. Either xbootloader or sbootloader is assigned to these.
   wire [31:0] bootloader_addr;
   wire bootloader_read_rq, bootloader_write_rq;
@@ -689,10 +721,14 @@ tms9918 vdp(
   // General variables. 
   wire [7:0] bootloader_mem_din;
   wire bootloader_read_ack1, bootloader_write_ack1; // to/from xmemctrl
+  // VDP acks are single-cycle pulses, qualify with VDP access
+  wire serloader_vdp_ack = (cpu_vdp_rd_ack | cpu_vdp_wr_ack) && serloader_vdp_access;
+
   assign hold = bootloader_read_rq || bootloader_write_rq;  
-  assign bootloader_read_ack = bootloader_read_ack1 || bootloader_read_ack2;
-  assign bootloader_write_ack = bootloader_write_ack1 || bootloader_write_ack2;
-  assign bootloader_din = bootloader_addr[24] ? bootloader_readback_reg : bootloader_mem_din;
+  assign bootloader_read_ack = bootloader_read_ack1 || bootloader_read_ack2 || serloader_vdp_ack;
+  assign bootloader_write_ack = bootloader_write_ack1 || bootloader_write_ack2 || serloader_vdp_ack;
+  assign bootloader_din = serloader_vdp_access ? vdp_data_out[15:8] : 
+                          (bootloader_addr[24] ? bootloader_readback_reg : bootloader_mem_din);
 
   wire serloader_reset = reset; //  | ~B2; // Serloader is reset with reset and when B2 is pressed
 
@@ -725,9 +761,11 @@ tms9918 vdp(
     .cpu_wr_rq(cpu_wr_rq), .cpu_rd_rq(cpu_rd_rq),
     .cpu_wr_ack(cpu_wr_ack), .cpu_rd_ack(cpu_rd_ack),
     // Signals for serloader, the memory controller.
+    // Don't pass VDP accesses to memory controller
     .mem_data_out(bootloader_dout), .mem_data_in(bootloader_mem_din), 
     .mem_addr(bootloader_addr), 
-    .mem_read_rq(bootloader_read_rq), .mem_write_rq(bootloader_write_rq),
+    .mem_read_rq(bootloader_read_rq && !serloader_vdp_access), 
+    .mem_write_rq(bootloader_write_rq && !serloader_vdp_access),
     .mem_read_ack_o(bootloader_read_ack1), .mem_write_ack_o(bootloader_write_ack1),
     // VDP memory access port
     .vdp_addr(vdp_xmem_addr),

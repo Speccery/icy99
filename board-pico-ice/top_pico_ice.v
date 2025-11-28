@@ -169,9 +169,9 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   wire memory_busy = (|busy_count);
   
   // Debug outputs - monitor SPI signals
-  assign ICE_20 = flash_rom_ready;  
-  assign ICE_21 = my_leds[3]; // my_leds[3];  // Monitor stuck
-  assign ICE_26 = flash_miso_in;  // Monitor flash MISO (data from flash)
+  assign ICE_20 = my_leds[1]; // flash_rom_ready;  
+  assign ICE_21 = my_leds[2]; // my_leds[3];  // Monitor stuck
+  assign ICE_26 = my_leds[3]; // flash_miso_in;  // Monitor flash MISO (data from flash)
   //assign ICE_19 = flash_mosi_out;  // Monitor flash MOSI (data to flash) - PIN 19 does not seem to work well
 
   // Generate wait states for SPI flash access

@@ -21,7 +21,8 @@ HOSTNAME := $(shell hostname)
 #  Size reduction for iCE40UP5K: TRACEBUFFER and TMS9902_SUPPORT already disabled in sys.v
 #  Keep serloader (useful for debugging and keyboard input)
 #  Keep PCIR_SUPPORT in tms9900.v (useful for debugging before video works)
-DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+# DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+DEFINES = -DUSE_SPRAM_FOR_VRAM
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = pico_ice_sdram
@@ -157,6 +158,26 @@ enter1:
 enter2:
 	../tools/serialtool -p 1000001 ef
 	../tools/serialtool -p 1000001 ff
+
+init9918:
+	# TMS9918 register write protocol: DATA first, then (0x80 | register_number)
+	# we write the following register values: 00, E0, F0, 0E, F9, 86, F8, 01
+	../tools/serialtool -p 800002 00 # value 00
+	../tools/serialtool -p 800002 80 # register 0 = 0x80
+	../tools/serialtool -p 800002 E0 # value E0
+	../tools/serialtool -p 800002 81 # register 1 = 0x81
+	../tools/serialtool -p 800002 F0 # value F0
+	../tools/serialtool -p 800002 82 # register 2 = 0x82
+	../tools/serialtool -p 800002 0E # value 0E
+	../tools/serialtool -p 800002 83 # register 3 = 0x83
+	../tools/serialtool -p 800002 F9 # value F9
+	../tools/serialtool -p 800002 84 # register 4 = 0x84
+	../tools/serialtool -p 800002 86 # value 86
+	../tools/serialtool -p 800002 85 # register 5 = 0x85
+	../tools/serialtool -p 800002 F8 # value F8
+	../tools/serialtool -p 800002 86 # register 6 = 0x86
+	../tools/serialtool -p 800002 01 # value 01
+	../tools/serialtool -p 800002 87 # register 7 = 0x87
 
 load_parsec:
 	# Parsec ROM
