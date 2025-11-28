@@ -21,8 +21,12 @@ HOSTNAME := $(shell hostname)
 #  Size reduction for iCE40UP5K: TRACEBUFFER and TMS9902_SUPPORT already disabled in sys.v
 #  Keep serloader (useful for debugging and keyboard input)
 #  Keep PCIR_SUPPORT in tms9900.v (useful for debugging before video works)
-DEFINES = -DUSE_SPRAM_FOR_VRAM  -DFORCE_CPU_RESET
-# DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+
+# Synthesis without CPU
+# DEFINES = -DUSE_SPRAM_FOR_VRAM -DFORCE_CPU_RESET
+# Synthesis with CPU
+DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = pico_ice_sdram
@@ -86,7 +90,8 @@ $(BITSTREAM): $(BUILD_DIR)/$(PROJ)_out.asc
 	$(YOSYSPATH)/icepack -s $< $@
 
 # ROM/GROM files
-ROM_FILE = ../roms/994aROM.Bin
+# ROM_FILE = ../roms/994aROM.Bin
+ROM_FILE = ../boot/boot99105_ti994a.bin
 GROM_FILE = ../roms/994AGROM.Bin
 
 # Flash memory layout:
@@ -111,6 +116,12 @@ $(BUILD_DIR)/$(PROJ)_combined.bin: $(BITSTREAM) $(ROM_FILE) $(GROM_FILE)
 	fi
 	@# Append Console ROM (8KB at offset 256KB)
 	cat $(ROM_FILE) >> $@
+	@# Pad ROM 8 K if it is smaller
+	@ROM_SIZE=$$(stat -f%z $(ROM_FILE) 2>/dev/null || stat -c%s $(ROM_FILE) 2>/dev/null); \
+	ROM_PADDING=$$((8192 - $$ROM_SIZE)); \
+	if [ $$ROM_PADDING -gt 0 ]; then \
+		dd if=/dev/zero bs=1 count=$$ROM_PADDING >> $@ 2>/dev/null; \
+	fi
 	@# Append Console GROM (24KB)
 	cat $(GROM_FILE) >> $@
 	@echo "Combined image size: $$(stat -f%z $@ 2>/dev/null || stat -c%s $@) bytes"

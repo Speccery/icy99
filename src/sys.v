@@ -732,7 +732,9 @@ tms9918 vdp(
   assign hold = bootloader_read_rq || bootloader_write_rq;  
   assign bootloader_read_ack = bootloader_read_ack1 || bootloader_read_ack2 || serloader_vdp_ack;
   assign bootloader_write_ack = bootloader_write_ack1 || bootloader_write_ack2 || serloader_vdp_ack;
-  assign bootloader_din = serloader_vdp_access ? ( bootloader_addr[0] == 1'b0 ? vdp_data_out[15:8] : vdp_data_out[7:0]) : 
+  // For VDP register reads we return alternately high byte and low byte based on address bit 0
+  // For VDP data reads we return always the high byte only, as we are dealing with byte wide accesses.
+  assign bootloader_din = serloader_vdp_access ? ( bootloader_addr[0] == 1'b0 || serloader_vdp_data_access ? vdp_data_out[15:8] : vdp_data_out[7:0]) : 
                           (bootloader_addr[24] ? bootloader_readback_reg : bootloader_mem_din);
 
   wire serloader_reset = reset; //  | ~B2; // Serloader is reset with reset and when B2 is pressed

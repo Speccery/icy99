@@ -198,34 +198,49 @@ unsigned get_repeat_counter_16(int fd) {
   return k;
 }
 
-int receive_block_complete(int fd, void *block, size_t size, unsigned timeout) {
+int receive_block_complete(int fd, void *block, size_t size, unsigned timeout_ms) {
   unsigned realsize = 0;
   uint8_t *result;
-	// unsigned now = GetTickCount();
   result = (uint8_t *) block;
-  // SerialTimeoutSet(timeout);
+  
+  // Simple timeout: try for a maximum number of iterations
+  int max_retries = timeout_ms / 100;  // Convert ms to retry count (each retry ~100ms)
+  int retries = 0;
 
   do {
     ssize_t read = read_port(fd, result + realsize, size - realsize);
+    if (read < 0) {
+      return -1;  // Error
+    }
     realsize += read;
-		// loops++;  // undefined variable, commented out
 		
-		if (realsize < size)
-			sleep(1);
-
+		if (realsize < size) {
+			usleep(100000);  // 100ms delay
+      retries++;
+      if (retries >= max_retries) {
+        fprintf(stderr, "Timeout in receive_block_complete: got %u of %zu bytes\n", realsize, size);
+        return -1;
+      }
+    }
   } while(realsize < size); 
-  // while ((realsize < size) && (SerialTimeoutCheck() == 0));  
-  return realsize == size ? 0 : 1;
+  
+  return realsize == size ? 0 : -1;
 }
 
-void read_memory_block(int fd, unsigned char *dest, unsigned address, int len) {
+int read_memory_block(int fd, unsigned char *dest, unsigned address, int len) {
+  int chunk = len > block_size ? block_size : len;
   setup_hw_address(fd, address);
   // Enable autoincrement mode and configure length
-  write_port(fd, (uint8_t *)"M3", 2);
-  set_repeat_counter_16(fd, len);
+  if(write_port(fd, (uint8_t *)"M3", 2))
+    return -1;
+  set_repeat_counter_16(fd, chunk);
   // Send read command and read our stuff
-  write_port(fd, (uint8_t *)"@", 1);
-  receive_block_complete(fd, dest, len, 2000);
+  if(write_port(fd, (uint8_t *)"@", 1))
+    return -2;
+  if(receive_block_complete(fd, dest, chunk, 2000) != 0) {
+    return -3;
+  }
+  return chunk;
 }
 
 int write_memory_block(int fd, unsigned char *source, unsigned address, int len) {
@@ -489,7 +504,17 @@ int main(int argc, char *argv[])
       return 1;
     }
     uint8_t buf[1024];
-    read_memory_block(fd, buf, addr, num_bytes);
+    // read_memory_block may return less than num_bytes due to block_size
+    int offset = 0;
+    while(offset < num_bytes) {
+      int r = read_memory_block(fd, buf + offset, addr + offset, num_bytes - offset);
+      if(r < 0) {
+        fprintf(stderr, "read_memory_block failed\n");
+        close(fd);
+        return 1;
+      }
+      offset += r;
+    }
     for(int i = 0; i < num_bytes; i++) {
       if(i % 16 == 0) {
         if(i > 0) {
@@ -576,16 +601,26 @@ int main(int argc, char *argv[])
       return 1;
     } else {
       printf("Opened destination file %s\n", filename);
-      unsigned read = 0;
-      while(read < length) {
-        int chunk = length - read;
-        if(chunk > 1024) {
-          chunk = 1024;
+      unsigned total_read = 0;
+      while(total_read < length) {
+        int remaining = length - total_read;
+        int chunk = remaining > sizeof(buf) ? sizeof(buf) : remaining;
+        // read_memory_block may return less than chunk due to block_size
+        int offset = 0;
+        while(offset < chunk) {
+          int r = read_memory_block(fd, buf + offset, address, chunk - offset);
+          if(r < 0) {
+            fprintf(stderr, "read_memory_block failed at address %X\n", address);
+            fclose(f);
+            close(fd);
+            return 1;
+          }
+          if(verbose) printf("Read %d bytes from address %X\n", r, address);
+          address += r;
+          offset += r;
         }
-        read_memory_block(fd, buf, address, chunk);
         fwrite(buf, sizeof(uint8_t), chunk, f);
-        read += chunk;
-        address += chunk;
+        total_read += chunk;
       }
       fclose(f);
     }
