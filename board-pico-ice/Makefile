@@ -21,8 +21,8 @@ HOSTNAME := $(shell hostname)
 #  Size reduction for iCE40UP5K: TRACEBUFFER and TMS9902_SUPPORT already disabled in sys.v
 #  Keep serloader (useful for debugging and keyboard input)
 #  Keep PCIR_SUPPORT in tms9900.v (useful for debugging before video works)
+DEFINES = -DUSE_SPRAM_FOR_VRAM  -DFORCE_CPU_RESET
 # DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
-DEFINES = -DUSE_SPRAM_FOR_VRAM
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
     PROJ = pico_ice_sdram
@@ -178,6 +178,17 @@ init9918:
 	../tools/serialtool -p 800002 86 # register 6 = 0x86
 	../tools/serialtool -p 800002 01 # value 01
 	../tools/serialtool -p 800002 87 # register 7 = 0x87
+
+set_vdp_addr_wr:
+	# Set VDP address to 0 for writes
+	../tools/serialtool -p 800002 00 # low byte
+	../tools/serialtool -p 800002 40 # high byte + write command
+
+set_vdp_addr_rd:
+	# Set VDP address to 0 for reads
+	../tools/serialtool -p 800002 00 # low byte
+	../tools/serialtool -p 800002 00 # high byte + read command
+
 
 load_parsec:
 	# Parsec ROM
