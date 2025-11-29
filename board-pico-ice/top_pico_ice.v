@@ -4,6 +4,11 @@
 // implements the TI-99/4A.
 //------------------------------------------------------------
 
+// Define USE_BLOCK_RAM_BOOT_ROM to use on-chip block RAM for boot ROM instead of SPI flash
+// Boot ROM is 8KB at ../boot/boot99105_ti994a.bin (converted to boot99105_ti994a.mem)
+// When enabled, GROMs still come from SPI flash
+// `define USE_BLOCK_RAM_BOOT_ROM 1
+
 module top_pico_ice(
   input  CLK,
   output LED_R, // on board red
@@ -144,15 +149,29 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   assign pad_data_out = pad_data_reg;
   
   // ========================================================================
-  // SPI Flash ROM/GROM
-  // Console ROM: 8KB at flash offset 0x040000, mapped to CPU 0x0000-0x1FFF
-  // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module
+  // ROM/GROM Selection
+  // Console ROM: 8KB at 0x0000-0x1FFF
+  //   - If USE_BLOCK_RAM_BOOT_ROM: uses block RAM from ../boot/boot99105_ti994a.mem
+  //   - Otherwise: uses SPI flash at offset 0x040000
+  // Console GROM: 24KB at flash offset 0x042000, mapped via gromext module (always SPI flash)
   // ========================================================================
   
   // ROM selection: 8KB at word addresses 0x00000-0x00FFF
   wire rom_sel = (sys_addr[22:12] == 11'b0000_0000_000);  // 8K @ 0x00000
   // GROM selection: sys.v maps GROM to word addresses 0x10000-0x17FFF
   wire grom_sel = (sys_addr[22:15] == 8'b0000_0001);      // 64K @ 0x10000
+  
+`ifdef USE_BLOCK_RAM_BOOT_ROM
+  // Boot ROM in block RAM (8KB)
+  wire [7:0] rom_out_lo, rom_out_hi;
+  wire [15:0] boot_rom_data;
+  // rom16 #(16, 12, 8192/2, "roms/994arom.mem") bootrom(
+  rom16 #(16, 12, 8192/2, "boot/boot99105_ti994a.mem") bootrom(
+    .clk(sys_clk), 
+    .addr(sys_addr[11:0]), 
+    .dout(boot_rom_data)
+  );
+`endif
   
   wire [15:0] flash_rom_data;
   wire flash_rom_ready;
@@ -161,7 +180,11 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   
   // Memory busy logic for SPI flash ROM access (similar to ULX3S SDRAM)
   // The CPU needs to wait while SPI flash read is in progress
-  wire flash_rom_rd = (rom_sel || grom_sel);
+`ifdef USE_BLOCK_RAM_BOOT_ROM
+  wire flash_rom_rd = grom_sel;  // Only GROM needs flash when boot ROM is in block RAM
+`else
+  wire flash_rom_rd = (rom_sel || grom_sel);  // Both ROM and GROM need flash
+`endif
   wire use_memory_busy = flash_rom_rd;
   reg flash_rom_rd_rq = 1'b0 ;
   
@@ -290,7 +313,12 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   
   // Data multiplexer: return data based on what's selected
   assign sram_pins_din = pad_sel ? pad_data_out :
-                         (rom_sel || grom_sel) ? flash_rom_data :
+`ifdef USE_BLOCK_RAM_BOOT_ROM
+                         rom_sel ? boot_rom_data :  // Boot ROM from block RAM
+                         grom_sel ? flash_rom_data : // GROM from SPI flash
+`else
+                         (rom_sel || grom_sel) ? flash_rom_data :  // Both from SPI flash
+`endif
                          16'h0000;
   
   // Ensure PSRAM chip select stays high (we're not using PSRAM yet)

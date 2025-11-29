@@ -10,8 +10,8 @@
 
        IDT  'BOOT99'
 
-;;WRKSP   EQU   >8300       
-WRKSP   EQU   >3f00   ; Test workspace in external RAM    
+WRKSP   EQU   >8300       
+; WRKSP   EQU   >3f00   ; Test workspace in external RAM    
 PRINTWS EQU   >8320
 PRTR1P	EQU	  >8322		; Input for PRINTR1
 DELAYWS EQU		>8340

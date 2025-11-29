@@ -522,8 +522,6 @@ end
     end else begin
       clk25MHz <= 1'b1; // With Lattice ICE40HX version clock is 25MHz and this behaves as enable
 
-      ram_pipeline_reads <= 1'b0;
-
       if(wr == 1'b1 && mode == 1'b1 && addr[7:6] == 2'b00) begin
         // write cycles to registers etc.
         cpu_write_cycle_ack <= 1'b1;  // ack this cycle, its a register write (synchronous to clk)
@@ -657,6 +655,7 @@ end
       vga_vsync <= Vsync;
       VGACol <= (VGACol2) - 32; // Apply a shift to VGACol
       // read from linebuffer
+
       if(clk25MHz == 1'b1) begin
         if(video_on == 1'b1 && reg1[6] == 1'b1) begin
           // vga_line_buf_out is the output of the linebuffer. The read address is computed from VGACol.
@@ -724,6 +723,8 @@ end
         // By default read and write requests off
         ram_read_rq <= 1'b0;
         ram_write_rq <= 1'b0;
+
+        ram_pipeline_reads <= 1'b0; // by default no pipelining reads
 
         // Collect any sprite coincidents over the current scanline.
         if (wr_coinc_pending && !mask_coinc_before_next_render) 
@@ -876,21 +877,19 @@ end
               process_pixel <= write_pixel_last;
             else begin
               // Here we have an opportunity to yield the VRAM bus to CPU reads and writes
-              if (1) begin
-                if (cpu_mem_read_pending_sync2) begin 
-                  // Yield to CPU read if CPU wants to read
-                  vram_out_addr <= vram_addr;
-                  refresh_return_state <= refresh_state;
-                  refresh_state <= cpu_vram_read0;
-                  ram_read_rq <= 1'b1;
-                end else if (cpu_mem_write_pending_sync2) begin
-                  // CPU makes a write cycle to VRAM
-                  vram_out_addr <= vram_addr;
-                  refresh_return_state <= refresh_state;
-                  refresh_state <= cpu_vram_write0;
-                  ram_write_rq <= 1'b1;
-                end              
-              end
+              if (cpu_mem_read_pending_sync2) begin 
+                // Yield to CPU read if CPU wants to read
+                vram_out_addr <= vram_addr;
+                refresh_return_state <= refresh_state;
+                refresh_state <= cpu_vram_read0;
+                ram_read_rq <= 1'b1;
+              end else if (cpu_mem_write_pending_sync2) begin
+                // CPU makes a write cycle to VRAM
+                vram_out_addr <= vram_addr;
+                refresh_return_state <= refresh_state;
+                refresh_state <= cpu_vram_write0;
+                ram_write_rq <= 1'b1;
+              end              
             end
           end
           write_pixel_last : begin
@@ -1244,20 +1243,23 @@ end
   localparam SP_WRITE = 2'b10;
   
   reg [7:0] ram_read_buffer;
-  wire [7:0] spram_dout;
+  wire [15:0] spram_dout;
   reg spram_we;
-  reg [14:0] spram_addr;
-  reg [7:0] spram_din;
+  // reg [14:0] spram_addr;
+  // reg [7:0] spram_din;
   
   assign mem_data_in = ram_read_buffer;
   assign ram_write_ack = (spram_state == SP_WRITE);
-  assign ram_read_ack = (spram_state == SP_READ);
+  reg spram_read_ack = 1'b0;
+  assign ram_read_ack = spram_read_ack; // (spram_state == SP_READ);
   
   // SPRAM instance - 32KB (only using 16KB or 32KB depending on VDP mode)
   SB_SPRAM256KA vram_spram(
     .DATAOUT(spram_dout),
-    .ADDRESS(spram_addr[13:0]),      // 14-bit address = 16K words
-    .DATAIN({spram_din, spram_din}), // Duplicate data for both bytes
+    // .ADDRESS(spram_addr[13:0]),      // 14-bit address = 16K words
+    // .DATAIN({spram_din, spram_din}), // Duplicate data for both bytes
+    .ADDRESS(vram_out_addr[13:0]),      // 15-bit address = 32K words
+    .DATAIN({data_in, data_in}), // Duplicate data for both bytes
     .MASKWREN({2'b11, 2'b11}),       // Write to both bytes (we only use lower byte)
     .WREN(spram_we),
     .CHIPSELECT(1'b1),
@@ -1269,18 +1271,20 @@ end
   
   // SPRAM access state machine
   always @(posedge pixel_clk) begin
+    
     case (spram_state)
       SP_IDLE: begin
         spram_we <= 1'b0;
+        spram_read_ack <= 1'b0; // Default deassert read ack
         if (ram_write_rq) begin
           // Start write cycle
-          spram_addr <= vram_out_addr[14:0];
-          spram_din <= data_in;
+          // spram_addr <= vram_out_addr[14:0];
+          // spram_din <= data_in;
           spram_we <= 1'b1;
           spram_state <= SP_WRITE;
         end else if (ram_read_rq) begin
           // Start read cycle
-          spram_addr <= vram_out_addr[14:0];
+          // spram_addr <= vram_out_addr[14:0];
           spram_state <= SP_READ;
         end
       end
@@ -1294,7 +1298,15 @@ end
       SP_READ: begin
         // Read data is available, latch it
         ram_read_buffer <= spram_dout[7:0];  // Use lower byte only
-        spram_state <= SP_IDLE;
+        spram_read_ack <= 1'b1;
+        if(ram_pipeline_reads) begin
+          // If pipelining reads, start next read immediately
+          // spram_addr <= vram_out_addr[14:0];
+          // Stay in current state, i.e. READ. spram_state <= SP_READ;
+        end else begin
+          // Otherwise return to idle
+          spram_state <= SP_IDLE;
+        end
       end
       
       default: begin

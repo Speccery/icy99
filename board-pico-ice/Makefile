@@ -24,8 +24,10 @@ HOSTNAME := $(shell hostname)
 
 # Synthesis without CPU
 # DEFINES = -DUSE_SPRAM_FOR_VRAM -DFORCE_CPU_RESET
-# Synthesis with CPU
-DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+# Synthesis with CPU and SPI flash ROM
+# DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ
+# Synthesis with CPU and block RAM boot ROM (GROMs still from SPI flash)
+DEFINES = -DUSE_SPRAM_FOR_VRAM -DTMS9918_NO_EXTENDED_REGS_READ -DUSE_BLOCK_RAM_BOOT_ROM
 
 ifeq ($(SDRAM_SUPPORT),1)
     DEFINES += -DUSE_SDRAM
@@ -39,6 +41,7 @@ TOP_MODULE = top_pico_ice
 VERILOG_FILES = \
 	$(TOP_MODULE).v \
 	spi_flash_rom.v \
+    ../rom16.v \
     ../src/dvi.v \
     ../src/ram2.v \
     ../src/sys.v \
@@ -90,8 +93,8 @@ $(BITSTREAM): $(BUILD_DIR)/$(PROJ)_out.asc
 	$(YOSYSPATH)/icepack -s $< $@
 
 # ROM/GROM files
-# ROM_FILE = ../roms/994aROM.Bin
-ROM_FILE = ../boot/boot99105_ti994a.bin
+ROM_FILE = ../roms/994aROM.Bin
+# ROM_FILE = ../boot/boot99105_ti994a.bin
 GROM_FILE = ../roms/994AGROM.Bin
 
 # Flash memory layout:
