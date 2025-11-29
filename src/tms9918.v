@@ -700,6 +700,13 @@ end
         // This adds one clock cycle of latency but doesn't affect display quality
         palettized <= palette_lookup[pixel_out_4bit];
       end
+
+      // If I am at the last pixel of each character cell, turn pixel white for debugging
+      // This helps to see character cell boundaries. The palettized thing cause a one pixel pipeline delay..
+      // 32 column mode
+      // if( (VGACol[3:0] == 4'd0) )
+      //   palettized <= 8'b11111111; // white
+
       
       // Second pipeline stage: assign RGB outputs
       // This breaks the critical path from pixel logic to output pins
@@ -908,7 +915,7 @@ end
               ) begin
               xpos <= 7'd0;
               // Ignore sprites in text mode.
-              refresh_state <= reg1[4] ? wait_line : process_sprites;
+              refresh_state <= wait_line; // reg1[4] ? wait_line : process_sprites;
             end
           end
           endcase
@@ -1197,21 +1204,21 @@ end
     .addr_a(line_buf_addra),
     .din_a( {line_buf_bit8_in, vga_line_buf_in}),
     // Port B
-    .clk_b(clk),
+    .clk_b(pixel_clk),
     .addr_b(line_buf_addrb),
     .dout_b( {not_used_8, vga_line_buf_out })
   );
 
-  wire [7:0] not_user_7_0;
+  wire [7:0] not_used_7_0;
   dualport_par #(.WIDTH(9), .DEPTH(9)) RENDERBUFFER( 
     .clk_a(pixel_clk),
     .we_a(sprite_presence_write),
     .addr_a(line_buf_addra[8:0]),
     .din_a( {line_buf_bit8_in, vga_line_buf_in}),
     // Port B
-    .clk_b(clk),
+    .clk_b(pixel_clk),
     .addr_b(line_buf_addra[8:0]),
-    .dout_b( {line_buf_bit8_out, not_user_7_0 })
+    .dout_b( {line_buf_bit8_out, not_used_7_0 })
   );
 
 `ifdef EXTERNAL_VRAM  
@@ -1299,6 +1306,15 @@ end
           spram_read_ack <= 1'b1;
           if(ram_pipeline_reads == 1'b0) begin
             spram_state <= SP_IDLE; // Return to idle if no pipelining
+          end else begin
+            // Stay in READ state for pipelining, but wait for next read request
+            // Only pulse ack high, then low while waiting
+            if(spram_read_ack) begin
+              spram_read_ack <= 1'b0; // Drop ack after one cycle
+            end else if(ram_read_rq) begin
+              // New read request in pipeline mode
+              spram_read_ack <= 1'b1;
+            end
           end
         end
         
