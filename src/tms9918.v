@@ -1267,40 +1267,46 @@ end
   
   // SPRAM access state machine
   always @(posedge pixel_clk) begin
-    
-    case (spram_state)
-      SP_IDLE: begin
-        spram_we <= 1'b0;
-        spram_read_ack <= 1'b0; // Default deassert read ack
-        if (ram_write_rq) begin
-          // Start write cycle
-          spram_we <= 1'b1;
-          spram_state <= SP_WRITE;
-        end else if (ram_read_rq) begin
-          // Start read cycle
-          spram_state <= SP_READ;
+    if(reset) begin
+      spram_state <= SP_IDLE;
+      spram_we <= 1'b0;
+      spram_read_ack <= 1'b0;
+    end else begin 
+      
+      case (spram_state)
+        SP_IDLE: begin
+          spram_we <= 1'b0;
+          spram_read_ack <= 1'b0; // Default deassert read ack
+          if (ram_write_rq) begin
+            // Start write cycle
+            spram_we <= 1'b1;
+            spram_state <= SP_WRITE;
+          end else if (ram_read_rq) begin
+            // Start read cycle
+            spram_state <= SP_READ;
+          end
         end
-      end
-      
-      SP_WRITE: begin
-        // Write completes, return to idle
-        spram_we <= 1'b0;
-        spram_state <= SP_IDLE;
-      end
-      
-      SP_READ: begin
-        // Read data is available, latch it
-        ram_read_buffer <= spram_dout[7:0];  // Use lower byte only
-        spram_read_ack <= 1'b1;
-        if(ram_pipeline_reads == 1'b0) begin
-          spram_state <= SP_IDLE; // Return to idle if no pipelining
+        
+        SP_WRITE: begin
+          // Write completes, return to idle
+          spram_we <= 1'b0;
+          spram_state <= SP_IDLE;
         end
-      end
-      
-      default: begin
-        spram_state <= SP_IDLE;
-      end
-    endcase
+        
+        SP_READ: begin
+          // Read data is available, latch it
+          ram_read_buffer <= spram_dout[7:0];  // Use lower byte only
+          spram_read_ack <= 1'b1;
+          if(ram_pipeline_reads == 1'b0) begin
+            spram_state <= SP_IDLE; // Return to idle if no pipelining
+          end
+        end
+        
+        default: begin
+          spram_state <= SP_IDLE;
+        end
+      endcase
+    end
   end
 `else
   // Internal block RAM used for VRAM (default for most platforms)
