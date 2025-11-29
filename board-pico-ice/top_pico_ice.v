@@ -165,8 +165,8 @@ assign sys_clk = clk_div[1];  // Divide by 4: 40 MHz / 4 = 10 MHz
   // Boot ROM in block RAM (8KB)
   wire [7:0] rom_out_lo, rom_out_hi;
   wire [15:0] boot_rom_data;
-  // rom16 #(16, 12, 8192/2, "roms/994arom.mem") bootrom(
-  rom16 #(16, 12, 8192/2, "boot/boot99105_ti994a.mem") bootrom(
+  rom16 #(16, 12, 8192/2, "roms/994arom.mem") bootrom(
+  // rom16 #(16, 12, 8192/2, "boot/boot99105_ti994a.mem") bootrom(
     .clk(sys_clk), 
     .addr(sys_addr[11:0]), 
     .dout(boot_rom_data)

@@ -1245,8 +1245,6 @@ end
   reg [7:0] ram_read_buffer;
   wire [15:0] spram_dout;
   reg spram_we;
-  // reg [14:0] spram_addr;
-  // reg [7:0] spram_din;
   
   assign mem_data_in = ram_read_buffer;
   assign ram_write_ack = (spram_state == SP_WRITE);
@@ -1256,8 +1254,6 @@ end
   // SPRAM instance - 32KB (only using 16KB or 32KB depending on VDP mode)
   SB_SPRAM256KA vram_spram(
     .DATAOUT(spram_dout),
-    // .ADDRESS(spram_addr[13:0]),      // 14-bit address = 16K words
-    // .DATAIN({spram_din, spram_din}), // Duplicate data for both bytes
     .ADDRESS(vram_out_addr[13:0]),      // 15-bit address = 32K words
     .DATAIN({data_in, data_in}), // Duplicate data for both bytes
     .MASKWREN({2'b11, 2'b11}),       // Write to both bytes (we only use lower byte)
@@ -1278,13 +1274,10 @@ end
         spram_read_ack <= 1'b0; // Default deassert read ack
         if (ram_write_rq) begin
           // Start write cycle
-          // spram_addr <= vram_out_addr[14:0];
-          // spram_din <= data_in;
           spram_we <= 1'b1;
           spram_state <= SP_WRITE;
         end else if (ram_read_rq) begin
           // Start read cycle
-          // spram_addr <= vram_out_addr[14:0];
           spram_state <= SP_READ;
         end
       end
@@ -1299,13 +1292,8 @@ end
         // Read data is available, latch it
         ram_read_buffer <= spram_dout[7:0];  // Use lower byte only
         spram_read_ack <= 1'b1;
-        if(ram_pipeline_reads) begin
-          // If pipelining reads, start next read immediately
-          // spram_addr <= vram_out_addr[14:0];
-          // Stay in current state, i.e. READ. spram_state <= SP_READ;
-        end else begin
-          // Otherwise return to idle
-          spram_state <= SP_IDLE;
+        if(ram_pipeline_reads == 1'b0) begin
+          spram_state <= SP_IDLE; // Return to idle if no pipelining
         end
       end
       
